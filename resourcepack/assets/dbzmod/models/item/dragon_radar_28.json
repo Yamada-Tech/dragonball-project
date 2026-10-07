@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "dbzmod:item/dragon_radar_28"
+  }
+}

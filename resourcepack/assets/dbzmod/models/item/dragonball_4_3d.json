@@ -1,0 +1,6 @@
+{
+  "parent": "dbzmod:item/dragonball_base_3d",
+  "textures": {
+    "ball": "dbzmod:item/dragonball_4"
+  }
+}

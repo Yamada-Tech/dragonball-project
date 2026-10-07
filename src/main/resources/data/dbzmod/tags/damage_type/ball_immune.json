@@ -1,0 +1,13 @@
+{
+  "values": [
+    { "id": "#minecraft:is_fire", "required": false },
+    { "id": "#minecraft:is_explosion", "required": false },
+    { "id": "minecraft:cactus", "required": false },
+    { "id": "minecraft:lightning_bolt", "required": false },
+    { "id": "minecraft:sweet_berry_bush", "required": false },
+    { "id": "minecraft:stalagmite", "required": false },
+    { "id": "minecraft:dragon_breath", "required": false },
+    { "id": "minecraft:wither", "required": false },
+    { "id": "minecraft:magic", "required": false }
+  ]
+}

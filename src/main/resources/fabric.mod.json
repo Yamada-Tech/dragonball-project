@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "dbzmod",
+	"version": "${version}",
+	"name": "Dragon Ball (Server-side)",
+	"description": "ドラゴンボール7個とドラゴンレーダーを追加するサーバーサイドMOD。バニラクライアント＋リソースパックで動作します。",
+	"authors": [
+		"Server Owner"
+	],
+	"license": "All-Rights-Reserved",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.dbzserver.dragonball.DragonBallMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.18.0",
+		"minecraft": "~26.1",
+		"java": ">=25",
+		"fabric-api": "*",
+		"polymer-core": "*"
+	}
+}

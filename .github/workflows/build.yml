@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build mod
+        run: |
+          chmod +x gradlew
+          ./gradlew build --no-daemon --stacktrace
+
+      - name: Zip resource pack
+        run: |
+          cd resourcepack
+          zip -r -X ../dbzmod-resourcepack.zip .
+          cd ..
+          echo "### Resource pack SHA-1" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sha1sum dbzmod-resourcepack.zip >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload mod jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbzmod-jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+
+      - name: Upload resource pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbzmod-resourcepack
+          path: dbzmod-resourcepack.zip
