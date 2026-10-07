@@ -1,10 +1,10 @@
 name: release
 
-# 「v1.0.0」のようなタグを打つと、MOD の jar とリソースパックをリリースに添付します。
+# GitHub の「Releases」画面でリリースを「公開 (Publish)」すると動きます。
+# MOD の jar とリソースパックを、そのリリースに自動で添付します。
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -28,14 +28,17 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew build --no-daemon --stacktrace
+          rm -f build/libs/*-sources.jar
 
       - name: Zip resource pack and write notes
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           cd resourcepack
           zip -r -X ../dbzmod-resourcepack.zip .
           cd ..
           SHA1=$(sha1sum dbzmod-resourcepack.zip | cut -d' ' -f1)
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/dbzmod-resourcepack.zip"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/dbzmod-resourcepack.zip"
           {
             echo "## server.properties に設定する値"
             echo
@@ -47,9 +50,10 @@ jobs:
           } > release-notes.md
           cat release-notes.md
 
-      - name: Create release
+      - name: Attach files to the release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           body_path: release-notes.md
           files: |
             dbzmod-resourcepack.zip
