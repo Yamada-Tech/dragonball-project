@@ -8,11 +8,8 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.tags.TagKey;
-import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Rarity;
-import net.minecraft.world.item.component.DamageResistant;
 
 /** アイテムの登録。 */
 public final class ModItems {
@@ -20,10 +17,6 @@ public final class ModItems {
 
 	public static final BallItem[] BALLS = new BallItem[7];
 	public static RadarItem RADAR;
-
-	/** 炎・爆発などのダメージを受けないようにするためのタグ (data/dbzmod/tags/damage_type/ball_immune.json)。 */
-	private static final TagKey<DamageType> BALL_IMMUNE =
-			TagKey.create(Registries.DAMAGE_TYPE, Identifier.fromNamespaceAndPath(DragonBallMod.MOD_ID, "ball_immune"));
 
 	private ModItems() {
 	}
@@ -36,7 +29,7 @@ public final class ModItems {
 					.setId(ResourceKey.create(Registries.ITEM, id))
 					.stacksTo(1)
 					.rarity(Rarity.EPIC)
-					.component(DataComponents.DAMAGE_RESISTANT, new DamageResistant(BALL_IMMUNE))
+					.fireResistant()
 					.component(DataComponents.ITEM_NAME, Component.literal(BALL_NAMES[i]).withStyle(ChatFormatting.GOLD));
 			BALLS[i] = Registry.register(BuiltInRegistries.ITEM, id, new BallItem(props, number));
 		}

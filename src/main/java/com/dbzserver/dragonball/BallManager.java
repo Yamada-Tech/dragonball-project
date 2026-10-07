@@ -244,6 +244,7 @@ public final class BallManager {
 					int n = BallStacks.numberOf(s);
 					if (n > 0) {
 						ie.setUnlimitedLifetime();
+						ie.setInvulnerable(true);
 						seen[n].add(new Sighting(n, BallStacks.serialOf(s), Kind.ITEM, lvl, ie.getX(), ie.getY(), ie.getZ(), null,
 								ie::discard));
 					}

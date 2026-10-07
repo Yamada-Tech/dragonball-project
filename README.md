@@ -154,7 +154,6 @@ Minecraft 26.1 は名前がまだ新しく、次のような箇所は修正が�
 | `BallManager` : `Blocks.WAXED_COPPER_CHEST` / `Blocks.COPPER_CHEST` | ブロック名の違い |
 | `BallManager` : `getHeightmapPos(...)` | 引数の違い |
 | `DbzCommands` : `player.teleport(new TeleportTransition(...))` | 引数の違い |
-| `ModItems` / `RadarItem` / `BallManager` の `import` | `DamageResistant`, `LodestoneTracker`, `LevelResource` の場所が違う (参照元のソースに使用例がなく未確認) |
 | `BallItem` : `canFitInsideContainerItems()` | 無い場合は単に効果がないだけ (エラーにはならない) |
 
 26.1 ちょうどのサーバーで動かない場合は、`gradle.properties` の
@@ -178,7 +177,7 @@ Minecraft 26.1 は名前がまだ新しく、次のような箇所は修正が�
 - **重複**: 台帳にない個体IDのボール (コピーされたもの) や、同じ番号の余剰分を見つけて削除します。
 - **消失**: 虚空に落ちた、削除された、などで **確実に消えたと分かった場合のみ**、新しいランダム位置へ再配置します。
   - 読み込まれていないチャンクの中にある場合や、持ち主がオフラインの場合は「消失」とは判断しません。
-- **保護**: 落ちたボールは時間で消えず、炎・溶岩・爆発・サボテンなどで壊れません。
+- **保護**: 落ちたボールは時間で消えず、炎・溶岩に耐え、落ちた状態では無敵になるため、爆発・サボテンなどでも壊れません。
 - **シュルカーボックス・バンドルへの格納は不可** にしています (中身を追跡できなくなるため)。
 
 次のものは防げません。
@@ -205,7 +204,7 @@ Minecraft 26.1 は名前がまだ新しく、次のような箇所は修正が�
 ```
 build.gradle / gradle.properties   ビルド設定 (Minecraft・Fabric・Polymerのバージョン)
 src/main/java/...                  MOD本体
-src/main/resources/                fabric.mod.json, レシピ, ダメージ耐性タグ
+src/main/resources/                fabric.mod.json, レシピ
 resourcepack/                      リソースパック (これを zip にして配信)
 tools/generate_pack.py             モデル・言語ファイルの生成スクリプト
 .github/workflows/                 自動ビルド (build.yml) と自動リリース (release.yml)

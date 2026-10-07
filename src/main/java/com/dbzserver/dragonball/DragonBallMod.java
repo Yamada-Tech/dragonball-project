@@ -58,6 +58,7 @@ public class DragonBallMod implements ModInitializer {
 		ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> {
 			if (entity instanceof ItemEntity itemEntity && BallStacks.numberOf(itemEntity.getItem()) > 0) {
 				itemEntity.setUnlimitedLifetime();
+				itemEntity.setInvulnerable(true);
 			}
 		});
 	}
