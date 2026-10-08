@@ -1,5 +1,7 @@
 name: build
 
+# main ブランチに push すると、ビルドして、そのまま GitHub の Releases に自動で公開します。
+# (手でリリースを作る必要はありません)
 on:
   push:
     branches: [main, master]
@@ -52,23 +54,69 @@ jobs:
           path: build/libs/*.jar
 
   # リソースパック (26.1〜26.3 共通の1つ)
+  # 中身が同じなら毎回まったく同じ zip (= 同じ SHA-1) になるよう、日時と並び順をそろえる。
   pack:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Zip resource pack
+      - name: Zip resource pack (deterministic)
         run: |
+          find resourcepack -exec touch -d "2024-01-01 00:00:00" {} +
           cd resourcepack
-          zip -r -X ../dbzmod-resourcepack.zip .
+          find . -type f | LC_ALL=C sort | sed 's|^\./||' | zip -X -q ../dbzmod-resourcepack.zip -@
           cd ..
-          echo "### Resource pack SHA-1" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          sha1sum dbzmod-resourcepack.zip >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sha1sum dbzmod-resourcepack.zip
 
       - name: Upload resource pack
         uses: actions/upload-artifact@v4
         with:
           name: dbzmod-resourcepack
           path: dbzmod-resourcepack.zip
+
+  # ビルドが終わったら、Releases に自動で公開する (プルリクエストのときは行わない)
+  release:
+    needs: [mod, pack]
+    # 片方の jar のビルドが失敗していても、成功した分だけ公開する
+    if: ${{ always() && needs.pack.result == 'success' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dbzmod-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          TAG="build-${{ github.run_number }}"
+          SHA1=$(sha1sum dist/dbzmod-resourcepack.zip | cut -d' ' -f1)
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/dbzmod-resourcepack.zip"
+          {
+            echo "## server.properties に設定する値"
+            echo
+            echo '```properties'
+            echo "resource-pack=${URL}"
+            echo "resource-pack-sha1=${SHA1}"
+            echo "require-resource-pack=true"
+            echo '```'
+            echo
+            echo "## 入れる jar (サーバーの Minecraft に合う方だけ)"
+            echo
+            echo "- Minecraft 26.3: \`dbzmod-*-mc26.3.jar\` + Polymer \`0.18.2+26.3\`"
+            echo "- Minecraft 26.1 / 26.1.2: \`dbzmod-*-mc26.1.2.jar\` + Polymer \`0.16.5+26.1.2\`"
+            echo
+            echo "※ 添付されている jar が片方だけの場合、もう片方のビルドは失敗しています。"
+            echo "※ リソースパックの中身が前回と同じなら、SHA-1 も前回と同じになります。"
+          } > release-notes.md
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Build #${{ github.run_number }}" \
+            --notes-file release-notes.md
