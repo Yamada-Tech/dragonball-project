@@ -15,6 +15,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.Vec3;
 
@@ -153,7 +154,7 @@ public final class DbzCommands {
 	private static int giveRadar(CommandContext<CommandSourceStack> ctx, ServerPlayer target) {
 		ItemStack stack = ModItems.RADAR.getDefaultInstance();
 		if (!target.getInventory().add(stack)) {
-			target.drop(stack, false);
+			Block.popResource(target.level(), target.blockPosition(), stack);
 		}
 		say(ctx, "ドラゴンレーダーを " + target.getName().getString() + " に付与しました。");
 		return 1;

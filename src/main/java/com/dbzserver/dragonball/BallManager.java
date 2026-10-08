@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -244,7 +245,7 @@ public final class BallManager {
 					int n = BallStacks.numberOf(s);
 					if (n > 0) {
 						ie.setUnlimitedLifetime();
-						ie.setInvulnerable(true);
+						Compat.makeInvulnerable(ie);
 						seen[n].add(new Sighting(n, BallStacks.serialOf(s), Kind.ITEM, lvl, ie.getX(), ie.getY(), ie.getZ(), null,
 								ie::discard));
 					}
@@ -435,7 +436,12 @@ public final class BallManager {
 
 		BlockEntity be = level.getBlockEntity(pos);
 		if (!(be instanceof Container) && createChest) {
-			Block block = DbzConfig.waxedChest ? Blocks.WAXED_COPPER_CHEST : Blocks.COPPER_CHEST;
+			Block block = copperChestBlock();
+			if (block == Blocks.AIR) {
+				DragonBallMod.LOGGER.error("銅チェストのブロックが見つかりませんでした。");
+				r.pending = true;
+				return false;
+			}
 			BlockState state = block.defaultBlockState();
 			if (state.hasProperty(ChestBlock.FACING)) {
 				state = state.setValue(ChestBlock.FACING, HORIZONTALS[random.nextInt(HORIZONTALS.length)]);
@@ -489,6 +495,12 @@ public final class BallManager {
 		}
 		logEvent("{}番ボールを配置しました: {}", r.number, formatPos(r));
 		return true;
+	}
+
+	/** 設定に応じた銅チェストのブロック。Minecraft の版でフィールド名・型が違うため、ID で取得する。 */
+	private static Block copperChestBlock() {
+		String id = DbzConfig.waxedChest ? "minecraft:waxed_copper_chest" : "minecraft:copper_chest";
+		return BuiltInRegistries.BLOCK.getValue(Identifier.parse(id));
 	}
 
 	/** 配置範囲内でボールを置ける地点をランダムに探す。見つからなければ null。 */
@@ -673,7 +685,7 @@ public final class BallManager {
 		r.missing = 0;
 		ItemStack stack = BallStacks.create(n, r.serial);
 		if (!player.getInventory().add(stack)) {
-			player.drop(stack, false);
+			Block.popResource(player.level(), player.blockPosition(), stack);
 		}
 		r.kind = Kind.PLAYER;
 		r.dimension = player.level().dimension().identifier().toString();
