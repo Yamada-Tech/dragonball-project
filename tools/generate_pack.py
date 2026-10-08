@@ -190,11 +190,22 @@ def main():
         }
     })
 
+    # ギャルのパンティ (見た目だけのアイテム。テクスチャは make_panties_texture.py で作る)
+    write(os.path.join(NS, "models", "item", "gal_panties.json"), {
+        "parent": "minecraft:item/generated",
+        "textures": {"layer0": "dbzmod:item/gal_panties"},
+    })
+    write(os.path.join(NS, "items", "gal_panties.json"), {
+        "model": {"type": "minecraft:model", "model": "dbzmod:item/gal_panties"}
+    })
+
     # 言語ファイル
     ja = {f"item.dbzmod.dragonball_{i + 1}": ball_names[i] for i in range(7)}
     ja["item.dbzmod.dragon_radar"] = "ドラゴンレーダー"
+    ja["item.dbzmod.gal_panties"] = "ギャルのパンティ"
     en = {f"item.dbzmod.dragonball_{i + 1}": f"{ball_names_en[i]} Dragon Ball" for i in range(7)}
     en["item.dbzmod.dragon_radar"] = "Dragon Radar"
+    en["item.dbzmod.gal_panties"] = "Gal's Panties"
     write(os.path.join(NS, "lang", "ja_jp.json"), ja)
     write(os.path.join(NS, "lang", "en_us.json"), en)
 

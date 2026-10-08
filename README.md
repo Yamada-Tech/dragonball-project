@@ -20,6 +20,7 @@
 |---|---|
 | ドラゴンボール 一星球〜七星球 | 各1個ずつ。**銅チェストに入った状態で地上のランダムな場所に設置**されます |
 | ドラゴンレーダー | **一番近いボール**の方向を指します。誰かが持っているボールには反応しません |
+| ギャルのパンティ (`dbzmod:gal_panties`) | 見た目だけのアイテム (効果なし)。`/give` で渡せます。スタック64。ボールの管理・整合性チェックの対象外 |
 | `/db` コマンド | 運営(OP)用の管理コマンド |
 | 設定ファイル | `config/dragonball.properties` (日本語コメント付き) |
 
@@ -52,44 +53,46 @@
 
 ---
 
-## 3. ビルド方法 (GitHub Actions を使う / PCにJDKは不要)
+## 3. ビルドと公開 (すべて自動 / PCにJDKは不要)
 
 26.x のビルドには JDK 25 が必要ですが、GitHub のサーバー上でビルドさせれば自分のPCに入れる必要はありません。
+**ファイルをアップロード (push) するだけで、ビルドから Releases への公開まで自動で行われます。**
 
 1. GitHub で新しいリポジトリを作る (**Public** にしてください。理由は手順4)
-2. このフォルダの中身を、そのままリポジトリへアップロードする
+2. このフォルダの中身を、そのままリポジトリ (main ブランチ) へアップロードする
    - Web画面の「Add file → Upload files」で、フォルダの中身をドラッグ&ドロップでも構いません。
    - `.github` フォルダも忘れずに含めてください (隠しフォルダ扱いで見落としやすい)。
-3. 自動で「Actions」タブのビルドが走ります。26.3 用と 26.1.2 用が**別々に**ビルドされます。
-   緑のチェックが付いたら、実行結果のページ下部 **Artifacts** から、サーバーに合う方をダウンロード → 解凍します。
-   - `dbzmod-jar-mc26.3` → `dbzmod-1.0.0-mc26.3.jar`
-   - `dbzmod-jar-mc26.1.2` → `dbzmod-1.0.0-mc26.1.2.jar`
-   - 片方だけ失敗することがあります (その版の内部が変わっているとき)。使わない方が失敗しても問題ありません。
-4. 赤い ✕ になった場合は、[8章](#8-うまくいかないとき) へ。
+3. 「Actions」タブの `build` が自動で走ります (5分前後)。26.3 用と 26.1.2 用が**別々に**ビルドされます。
+4. 緑のチェックが付いたら、リポジトリの **Releases** に「Build #N」が自動で公開されています。次のファイルが添付されます。
+   - `dbzmod-1.0.0-mc26.3.jar` … 26.3 用 MOD
+   - `dbzmod-1.0.0-mc26.1.2.jar` … 26.1.2 用 MOD
+   - `dbzmod-resourcepack.zip` … リソースパック (両方で共通)
+   - 片方の jar だけ添付されている場合は、もう片方のビルドが失敗しています。使わない方なら問題ありません。
+5. 手でリリースを作る必要はありません。ファイルを更新して push するたびに、新しい「Build #N」が増えます。
+   古いものは、Releases 画面から削除して構いません。
+
+> `Actions` で `release` という名前の古いワークフローが残っている場合は、
+> `.github/workflows/release.yml` を削除してください (今は使いません)。
 
 ---
 
 ## 4. リソースパックの配信 (GitHub を使う)
 
-1. リポジトリの「Releases → Create a new release」で、タグに **`v1.0.0`** と入力し、**「Publish release」で公開する**
-   - 公開すると自動でビルドが走り (3〜5分)、リリースに次のファイルが添付されます。
-     「Actions」タブの `release` が緑になるまで待ってください。ソースコードのzipは GitHub が自動で付けるもので、別物です。
-     - `dbzmod-1.0.0-mc26.3.jar` / `dbzmod-1.0.0-mc26.1.2.jar` (MOD。サーバーに合う方)
-     - `dbzmod-resourcepack.zip` (リソースパック。両方で共通)
-   - リリースの説明欄に、**そのまま貼れる `server.properties` の値 (URL と SHA-1)** が自動で書かれます。
-2. サーバーの `server.properties` に、その3行を貼り付けて保存し、サーバーを再起動する。
+1. 最新の「Build #N」リリースの説明欄に、**そのまま貼れる `server.properties` の値 (URL と SHA-1)** が自動で書かれています。
+2. サーバーの `server.properties` にその3行を貼り付けて保存し、サーバーを再起動します。
 
 ```properties
-resource-pack=https://github.com/<ユーザー名>/<リポジトリ名>/releases/download/v1.0.0/dbzmod-resourcepack.zip
+resource-pack=https://github.com/<ユーザー名>/<リポジトリ名>/releases/download/build-N/dbzmod-resourcepack.zip
 resource-pack-sha1=<リリースの説明欄に書かれた値>
 require-resource-pack=true
 ```
 
 - リポジトリを Public にするのは、プレイヤーのゲームが認証なしでダウンロードできる必要があるためです。
-- リソースパックを更新したら、**新しいタグ (v1.0.1 など) でリリースし直し**、URLとSHA-1を書き換えてください。
+- **リソースパックの中身が前回と同じなら、SHA-1 も前回と同じになります。**
+  MOD のコードだけを直した場合は、`server.properties` を書き換える必要はありません。古いビルドの URL をそのまま使えます
+  (そのリリースを削除しない限り有効です)。
+- リソースパック (`resourcepack/` の中身) を変更したときだけ、新しい URL と SHA-1 に更新してください。
   SHA-1 を更新しないと、プレイヤー側に古いパックが残ります。
-- GitHub のリリースURLでダウンロードできない場合は、`dbzmod-resourcepack.zip` をリポジトリにコミットし、
-  `https://raw.githubusercontent.com/<ユーザー名>/<リポジトリ名>/main/dbzmod-resourcepack.zip` を使う方法もあります。
 
 ---
 
@@ -220,5 +223,5 @@ src/main/java/...                  MOD本体
 src/main/resources/                fabric.mod.json, レシピ
 resourcepack/                      リソースパック (これを zip にして配信)
 tools/generate_pack.py             モデル・言語ファイルの生成スクリプト
-.github/workflows/                 自動ビルド (build.yml) と自動リリース (release.yml)
+.github/workflows/                 自動ビルドと Releases への自動公開 (build.yml)
 ```

@@ -1,5 +1,6 @@
 package com.dbzserver.dragonball;
 
+import eu.pb4.polymer.core.api.item.SimplePolymerItem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
@@ -17,6 +18,8 @@ public final class ModItems {
 
 	public static final BallItem[] BALLS = new BallItem[7];
 	public static RadarItem RADAR;
+	/** ギャルのパンティ。見た目だけのアイテム (効果なし)。ボールの管理・整合性チェックの対象外。 */
+	public static SimplePolymerItem GAL_PANTIES;
 
 	private ModItems() {
 	}
@@ -41,5 +44,12 @@ public final class ModItems {
 				.rarity(Rarity.RARE)
 				.component(DataComponents.ITEM_NAME, Component.literal("ドラゴンレーダー").withStyle(ChatFormatting.AQUA));
 		RADAR = Registry.register(BuiltInRegistries.ITEM, radarId, new RadarItem(radarProps));
+
+		Identifier pantiesId = Identifier.fromNamespaceAndPath(DragonBallMod.MOD_ID, "gal_panties");
+		Item.Properties pantiesProps = new Item.Properties()
+				.setId(ResourceKey.create(Registries.ITEM, pantiesId))
+				.stacksTo(64)
+				.component(DataComponents.ITEM_NAME, Component.literal("ギャルのパンティ").withStyle(ChatFormatting.LIGHT_PURPLE));
+		GAL_PANTIES = Registry.register(BuiltInRegistries.ITEM, pantiesId, new SimplePolymerItem(pantiesProps));
 	}
 }
