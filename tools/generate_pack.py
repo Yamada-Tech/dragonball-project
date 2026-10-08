@@ -198,12 +198,12 @@ def main():
     write(os.path.join(NS, "lang", "ja_jp.json"), ja)
     write(os.path.join(NS, "lang", "en_us.json"), en)
 
-    # pack.mcmeta (形式84 = 26.1 / 26.1.2、88 = 26.2)
+    # pack.mcmeta (形式84 = 26.1〜26.1.2、88 = 26.2、97 = 26.3)。上限を広めに取り、将来の版でも警告が出にくくする
     write(os.path.join(ROOT, "pack.mcmeta"), {
         "pack": {
             "description": "Dragon Ball Server Pack (Dragon Balls + Dragon Radar)",
             "min_format": 84,
-            "max_format": 88,
+            "max_format": 127,
         }
     })
 

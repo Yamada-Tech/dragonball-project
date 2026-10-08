@@ -7,8 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # MOD 本体: Minecraft 26.3 用と 26.1.2 用を、それぞれ別の jar としてビルドする。
+  # 片方が失敗しても、もう片方は最後まで実行される (fail-fast: false)。
+  mod:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mc: "26.3"
+            fabric_api: "0.161.0+26.3"
+            polymer: "0.18.2+26.3"
+            dep: "~26.3"
+          - mc: "26.1.2"
+            fabric_api: "0.155.3+26.1.2"
+            polymer: "0.16.5+26.1.2"
+            dep: "~26.1"
     steps:
       - uses: actions/checkout@v4
 
@@ -21,10 +35,27 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build mod
+      - name: Build mod (Minecraft ${{ matrix.mc }})
         run: |
           chmod +x gradlew
-          ./gradlew build --no-daemon --stacktrace
+          ./gradlew build --no-daemon --stacktrace \
+            "-Pminecraft_version=${{ matrix.mc }}" \
+            "-Pfabric_api_version=${{ matrix.fabric_api }}" \
+            "-Ppolymer_version=${{ matrix.polymer }}" \
+            "-Pminecraft_dep=${{ matrix.dep }}"
+          rm -f build/libs/*-sources.jar
+
+      - name: Upload mod jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbzmod-jar-mc${{ matrix.mc }}
+          path: build/libs/*.jar
+
+  # リソースパック (26.1〜26.3 共通の1つ)
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Zip resource pack
         run: |
@@ -35,14 +66,6 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           sha1sum dbzmod-resourcepack.zip >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload mod jar
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbzmod-jar
-          path: |
-            build/libs/*.jar
-            !build/libs/*-sources.jar
 
       - name: Upload resource pack
         uses: actions/upload-artifact@v4
