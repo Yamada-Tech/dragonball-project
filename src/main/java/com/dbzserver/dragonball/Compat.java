@@ -1,6 +1,10 @@
 package com.dbzserver.dragonball;
 
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.equipment.Equippable;
 
 import java.lang.reflect.Method;
 
@@ -36,5 +40,29 @@ public final class Compat {
 		} catch (ReflectiveOperationException e) {
 			// 失敗しても致命的ではない
 		}
+	}
+
+	/**
+	 * 頭に装備できるコンポーネントを作る。
+	 *
+	 * @param assetId       装着時の見た目 (assets/&lt;名前空間&gt;/equipment/&lt;名前&gt;.json)
+	 * @param cameraOverlay 装着中の視界オーバーレイ (かぼちゃと同じ仕組み。textures/ 以下のパス)
+	 */
+	@SuppressWarnings({"unchecked", "rawtypes"})
+	public static Equippable headEquippable(Identifier assetId, Identifier cameraOverlay) {
+		// 装備定義のキー。EquipmentAsset の型名に依存しないよう、raw 型で組み立てる
+		ResourceKey registry = ResourceKey.createRegistryKey(Identifier.parse("minecraft:equipment_asset"));
+		ResourceKey assetKey = ResourceKey.create(registry, assetId);
+
+		var builder = Equippable.builder(EquipmentSlot.HEAD).setAsset(assetKey);
+
+		// 視界オーバーレイの設定。メソッド名が版で違っても、ビルドが通るようリフレクションで呼ぶ
+		try {
+			Method setOverlay = builder.getClass().getMethod("setCameraOverlay", Identifier.class);
+			setOverlay.invoke(builder, cameraOverlay);
+		} catch (ReflectiveOperationException e) {
+			DragonBallMod.LOGGER.warn("視界オーバーレイを設定できませんでした。被っても視界は狭くなりません: {}", e.toString());
+		}
+		return builder.build();
 	}
 }

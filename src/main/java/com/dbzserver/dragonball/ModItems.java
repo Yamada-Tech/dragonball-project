@@ -18,7 +18,7 @@ public final class ModItems {
 
 	public static final BallItem[] BALLS = new BallItem[7];
 	public static RadarItem RADAR;
-	/** ギャルのパンティ。見た目だけのアイテム (効果なし)。ボールの管理・整合性チェックの対象外。 */
+	/** ギャルのパンティ。頭に被れる装備 (視界が狭くなる)。ボールの管理・整合性チェックの対象外。 */
 	public static SimplePolymerItem GAL_PANTIES;
 
 	private ModItems() {
@@ -49,7 +49,12 @@ public final class ModItems {
 		Item.Properties pantiesProps = new Item.Properties()
 				.setId(ResourceKey.create(Registries.ITEM, pantiesId))
 				.stacksTo(64)
-				.component(DataComponents.ITEM_NAME, Component.literal("ギャルのパンティ").withStyle(ChatFormatting.LIGHT_PURPLE));
+				.component(DataComponents.ITEM_NAME, Component.literal("ギャルのパンティ").withStyle(ChatFormatting.LIGHT_PURPLE))
+				// 頭に被れる。被ると顔にパンティが被さり (equipment/gal_panties.json)、
+				// かぼちゃと同じく視界が狭くなる (textures/misc/pantiesblur.png)
+				.component(DataComponents.EQUIPPABLE, Compat.headEquippable(
+						pantiesId,
+						Identifier.fromNamespaceAndPath(DragonBallMod.MOD_ID, "misc/pantiesblur")));
 		GAL_PANTIES = Registry.register(BuiltInRegistries.ITEM, pantiesId, new SimplePolymerItem(pantiesProps));
 	}
 }
