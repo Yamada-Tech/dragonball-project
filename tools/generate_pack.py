@@ -199,6 +199,13 @@ def main():
         "model": {"type": "minecraft:model", "model": "dbzmod:item/gal_panties"}
     })
 
+    # 頭に被ったときの見た目 (装備定義)。テクスチャは make_panties_worn_texture.py で作る
+    #   textures/entity/equipment/humanoid/gal_panties.png を、頭の装備として描画する
+    write(os.path.join(NS, "equipment", "gal_panties.json"), {
+        "layers": {"humanoid": [{"texture": "dbzmod:gal_panties"}]}
+    })
+    # 視界を狭めるオーバーレイは textures/misc/pantiesblur.png (かぼちゃの視界と同じ仕組み) を使う
+
     # 言語ファイル
     ja = {f"item.dbzmod.dragonball_{i + 1}": ball_names[i] for i in range(7)}
     ja["item.dbzmod.dragon_radar"] = "ドラゴンレーダー"

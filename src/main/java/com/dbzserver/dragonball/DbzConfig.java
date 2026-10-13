@@ -7,6 +7,7 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Properties;
 
 /**
@@ -37,6 +38,16 @@ public final class DbzConfig {
 	// ---- ログ・告知 ----
 	public static boolean logEvents = true;
 	public static boolean broadcastPickup = false;
+
+	// ---- ギャルのパンティ (頭に被ったときの能力補正)。0 の項目は付かない。反映にはサーバーの再起動が必要 ----
+	public static double pantiesAttackDamage = 10.0;
+	public static double pantiesSpeedMultiplier = 1.5;
+	public static double pantiesJumpStrength = 0.25;
+	public static double pantiesStepHeight = 1.4;
+	public static boolean pantiesNoFallDamage = true;
+	public static double pantiesMaxHealth = 20.0;
+	public static double pantiesKnockbackResistance = 1.0;
+	public static double pantiesMiningSpeedMultiplier = 2.0;
 
 	private DbzConfig() {
 	}
@@ -79,6 +90,21 @@ public final class DbzConfig {
 
 			logEvents = getBool(p, "log.events", true);
 			broadcastPickup = getBool(p, "announce.pickup", false);
+
+			pantiesAttackDamage = getDouble(p, "panties.attack_damage", 10.0);
+			pantiesSpeedMultiplier = getDouble(p, "panties.speed_multiplier", 1.5);
+			pantiesJumpStrength = getDouble(p, "panties.jump_strength", 0.25);
+			pantiesStepHeight = getDouble(p, "panties.step_height", 1.4);
+			pantiesNoFallDamage = getBool(p, "panties.no_fall_damage", true);
+			pantiesMaxHealth = getDouble(p, "panties.max_health", 20.0);
+			pantiesKnockbackResistance = getDouble(p, "panties.knockback_resistance", 1.0);
+			pantiesMiningSpeedMultiplier = getDouble(p, "panties.mining_speed_multiplier", 2.0);
+
+			// 古い設定ファイルには、パンティの項目が無い。説明つきで末尾に追記する
+			if (!p.containsKey("panties.attack_damage")) {
+				Files.writeString(file, PANTIES_SECTION, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+				DragonBallMod.LOGGER.info("設定ファイルに、ギャルのパンティの項目を追記しました: {}", file);
+			}
 		} catch (IOException e) {
 			DragonBallMod.LOGGER.error("設定ファイルの読み込みに失敗しました。初期値を使います。", e);
 		}
@@ -97,6 +123,19 @@ public final class DbzConfig {
 		}
 	}
 
+	private static double getDouble(Properties p, String key, double def) {
+		String v = p.getProperty(key);
+		if (v == null || v.isBlank()) {
+			return def;
+		}
+		try {
+			return Double.parseDouble(v.trim());
+		} catch (NumberFormatException e) {
+			DragonBallMod.LOGGER.warn("設定 {} の値 '{}' が数値ではありません。初期値 {} を使います。", key, v, def);
+			return def;
+		}
+	}
+
 	private static boolean getBool(Properties p, String key, boolean def) {
 		String v = p.getProperty(key);
 		if (v == null || v.isBlank()) {
@@ -104,6 +143,42 @@ public final class DbzConfig {
 		}
 		return Boolean.parseBoolean(v.trim());
 	}
+
+	/** ギャルのパンティの能力補正の説明。初回の設定ファイル作成時と、古い設定ファイルへの追記に使う。 */
+	private static final String PANTIES_SECTION = """
+
+
+			# ----------------------------------------------------------
+			#  ギャルのパンティ (頭に被ったときの能力補正)
+			# ----------------------------------------------------------
+			#  頭に被っている間だけ効き、外すと元に戻ります。アイテムの説明文には表示されません。
+			#  ※ この項目の変更は、サーバーを再起動すると反映されます (/db reload では反映されません)。
+			#  ※ 0 にすると、その効果は付きません。
+
+			# 攻撃力に足す値。素手の攻撃力は 1 なので、10 なら素手で 11 (ネザライトの剣が 8)。
+			panties.attack_damage=10
+
+			# 移動速度の増加率。1.5 なら +150% (2.5 倍)。
+			panties.speed_multiplier=1.5
+
+			# ジャンプ力に足す値。バニラは約 1.25 ブロックの高さ。0.25 で約 3 ブロック。
+			panties.jump_strength=0.25
+
+			# 歩いて登れる段差の高さに足す値。バニラは 0.6。1.4 なら 2.0 ブロックの段差を、ジャンプせず登れる。
+			panties.step_height=1.4
+
+			# true にすると、落下ダメージを受けない。
+			panties.no_fall_damage=true
+
+			# 最大体力に足す値。20 なら +20 (ハート10個分)。
+			panties.max_health=20
+
+			# ノックバック耐性。1.0 で、殴られても全く吹っ飛ばない。
+			panties.knockback_resistance=1.0
+
+			# ブロックを掘る速さの増加率。2.0 なら +200% (3 倍)。
+			panties.mining_speed_multiplier=2.0
+			""";
 
 	private static final String DEFAULT_FILE = """
 			# ==========================================================
@@ -183,5 +258,5 @@ public final class DbzConfig {
 
 			# true にすると、誰かがボールを入手したとき、全員にチャットで知らせます。
 			announce.pickup=false
-			""";
+			""" + PANTIES_SECTION;
 }
