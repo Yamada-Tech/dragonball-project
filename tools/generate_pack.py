@@ -130,7 +130,7 @@ def main():
         "display": DISPLAY,
     })
 
-    ball_names = ["一星球", "二星球", "三星球", "四星球", "五星球", "六星球", "七星球"]
+    ball_names = ["一星竜玉", "二星竜玉", "三星竜玉", "四星竜玉", "五星竜玉", "六星竜玉", "七星竜玉"]
     ball_names_en = ["One-Star", "Two-Star", "Three-Star", "Four-Star", "Five-Star", "Six-Star", "Seven-Star"]
 
     for n in range(1, 8):

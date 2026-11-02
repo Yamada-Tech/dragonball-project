@@ -19,7 +19,7 @@ import net.minecraft.world.item.component.TooltipDisplay;
 
 /** アイテムの登録。 */
 public final class ModItems {
-	public static final String[] BALL_NAMES = {"一星球", "二星球", "三星球", "四星球", "五星球", "六星球", "七星球"};
+	public static final String[] BALL_NAMES = {"一星竜玉", "二星竜玉", "三星竜玉", "四星竜玉", "五星竜玉", "六星竜玉", "七星竜玉"};
 
 	public static final BallItem[] BALLS = new BallItem[7];
 	public static RadarItem RADAR;

@@ -6,7 +6,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.Holder;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -26,8 +25,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -61,13 +58,16 @@ import java.util.UUID;
  */
 public final class BallManager {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-	private static final Direction[] HORIZONTALS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
 	private static final String OVERWORLD_ID = "minecraft:overworld";
 
 	private final MinecraftServer server;
 	private final BallRecord[] records = new BallRecord[8]; // 1..7 を使用
 	/** ロード済みのコンテナ。サーバー起動直後に読み込まれたものも拾えるよう static で保持する。 */
 	private static final Set<BlockEntity> containers = Collections.newSetFromMap(new IdentityHashMap<>());
+	/** 浮遊中のボールエンティティのUUID (番号 -> UUID)。チャンク再読み込み時も更新される。 */
+	private static final Map<Integer, UUID> ballEntityIds = new HashMap<>();
+	/** 襲撃中の護衛エンティティのUUID (番号 -> 一覧)。保存しない (再起動後は全滅扱い)。 */
+	private final Map<Integer, List<UUID>> raidGuards = new HashMap<>();
 	private final Map<UUID, GlobalPos> lastRadar = new HashMap<>();
 	private final Random random = new Random();
 	private Path stateFile;
@@ -154,9 +154,15 @@ public final class BallManager {
 		containers.remove(be);
 	}
 
-	/** サーバー停止時に追跡中のコンテナを破棄する。 */
+	/** 浮遊ボールがワールドに現れたとき (配置・チャンク再読み込み)、UUID を記録する。 */
+	public static void onBallEntityLoad(int number, UUID id) {
+		ballEntityIds.put(number, id);
+	}
+
+	/** サーバー停止時に追跡中のコンテナ・ボール・護衛を破棄する。 */
 	public static void clearTracked() {
 		containers.clear();
+		ballEntityIds.clear();
 	}
 
 	public void tick() {
@@ -166,6 +172,9 @@ public final class BallManager {
 		}
 		if (tickCounter % DbzConfig.radarUpdateTicks == 0) {
 			refreshRadars();
+		}
+		if (tickCounter % 5 == 0) {
+			tickRaids();
 		}
 	}
 
@@ -424,64 +433,49 @@ public final class BallManager {
 			r.pending = true;
 			return false;
 		}
-		return placeBall(level, spot, r, true, true);
+		return placeBall(level, spot, r, true);
 	}
 
 	/**
-	 * 指定位置の銅チェストにボールを入れる。
-	 * チェストが無ければ設置する。既にコンテナがあればそこに入れる。
-	 */
-	private boolean placeBall(ServerLevel level, BlockPos pos, BallRecord r, boolean createChest, boolean setHome) {
+		* 指定位置に、その場でふわふわ浮いているボールをスポーンさせる。
+		* 地面の上 (spawn.float_height の高さ) に、重力なし・無敵のアイテムとして出す。
+		*/
+	private boolean placeBall(ServerLevel level, BlockPos pos, BallRecord r, boolean setHome) {
 		level.getChunk(pos.getX() >> 4, pos.getZ() >> 4);
 
-		BlockEntity be = level.getBlockEntity(pos);
-		if (!(be instanceof Container) && createChest) {
-			Block block = copperChestBlock();
-			if (block == Blocks.AIR) {
-				DragonBallMod.LOGGER.error("銅チェストのブロックが見つかりませんでした。");
-				r.pending = true;
-				return false;
-			}
-			BlockState state = block.defaultBlockState();
-			if (state.hasProperty(ChestBlock.FACING)) {
-				state = state.setValue(ChestBlock.FACING, HORIZONTALS[random.nextInt(HORIZONTALS.length)]);
-			}
-			level.setBlock(pos, state, Block.UPDATE_ALL);
-			be = level.getBlockEntity(pos);
+		ItemStack ball = BallStacks.create(r.number, r.serial);
+		double x = pos.getX() + 0.5;
+		double y = pos.getY() + DbzConfig.floatHeight;
+		double z = pos.getZ() + 0.5;
+
+		ItemEntity ballEntity = new ItemEntity(level, x, y, z, ball);
+		ballEntity.setUnlimitedLifetime();
+		Compat.makeInvulnerable(ballEntity);
+		Compat.makeFloat(ballEntity);
+		Compat.stopMotion(ballEntity);
+		if (DbzConfig.raidEnabled) {
+			// 襲撃をクリアするまで取得できないようにする (tickRaids で常時管理)
+			ballEntity.setPickupDelay(200);
+		} else {
+			ballEntity.setPickupDelay(0);
 		}
-		if (!(be instanceof Container container)) {
-			DragonBallMod.LOGGER.error("{}番ボールを入れるコンテナを用意できませんでした ({})", r.number, pos);
+		if (!Compat.spawnEntity(level, ballEntity)) {
+			DragonBallMod.LOGGER.error("{}番ボールをスポーンできませんでした ({})", r.number, pos);
 			r.pending = true;
 			return false;
 		}
+		ballEntityIds.put(r.number, ballEntity.getUUID());
 
-		ItemStack ball = BallStacks.create(r.number, r.serial);
-		int size = container.getContainerSize();
-		int slot = -1;
-		int center = size / 2;
-		if (container.getItem(center).isEmpty()) {
-			slot = center;
-		} else {
-			for (int i = 0; i < size; i++) {
-				if (container.getItem(i).isEmpty()) {
-					slot = i;
-					break;
-				}
-			}
-		}
-		if (slot >= 0) {
-			container.setItem(slot, ball);
-			be.setChanged();
-			containers.add(be);
-		} else {
-			Block.popResource(level, pos, ball);
-		}
+		// 新しいボールは襲撃前からのやり直し (触れるとまた護衛が出る)
+		r.raiding = false;
+		r.cleared = false;
+		raidGuards.remove(r.number);
 
-		r.kind = Kind.CONTAINER;
+		r.kind = Kind.ITEM;
 		r.dimension = level.dimension().identifier().toString();
-		r.x = pos.getX() + 0.5;
-		r.y = pos.getY() + 0.5;
-		r.z = pos.getZ() + 0.5;
+		r.x = x;
+		r.y = y;
+		r.z = z;
 		r.holder = "";
 		r.holderName = "";
 		r.pending = false;
@@ -495,12 +489,6 @@ public final class BallManager {
 		}
 		logEvent("{}番ボールを配置しました: {}", r.number, formatPos(r));
 		return true;
-	}
-
-	/** 設定に応じた銅チェストのブロック。Minecraft の版でフィールド名・型が違うため、ID で取得する。 */
-	private static Block copperChestBlock() {
-		String id = DbzConfig.waxedChest ? "minecraft:waxed_copper_chest" : "minecraft:copper_chest";
-		return BuiltInRegistries.BLOCK.getValue(Identifier.parse(id));
 	}
 
 	/** 配置範囲内でボールを置ける地点をランダムに探す。見つからなければ null。 */
@@ -557,6 +545,12 @@ public final class BallManager {
 			return false;
 		}
 		if (!under.isFaceSturdy(level, below, Direction.UP)) {
+			return false;
+		}
+		// 浮かぶ高さに空気 (または置き換えられるブロック) があるか
+		BlockPos above = pos.above();
+		BlockState airBlock = level.getBlockState(above);
+		if (!(airBlock.isAir() || airBlock.canBeReplaced())) {
 			return false;
 		}
 		Holder<Biome> biome = level.getBiome(pos);
@@ -625,6 +619,195 @@ public final class BallManager {
 	}
 
 	// ------------------------------------------------------------------
+	//  襲撃イベント (ボールに触れると護衛が現れ、全滅させると取得できる)
+	// ------------------------------------------------------------------
+
+	/** 5tickごとに実行: 襲撃の進行管理と、ボールへの接近判定。 */
+	private void tickRaids() {
+		for (int n = 1; n <= 7; n++) {
+			BallRecord r = records[n];
+			if (r == null) {
+				continue;
+			}
+			if (r.raiding) {
+				checkRaidCleared(n, r);
+			}
+			if (r.pending || r.kind != Kind.ITEM) {
+				continue;
+			}
+			ServerLevel lvl = levelOf(r.dimension);
+			if (lvl == null) {
+				continue;
+			}
+			ItemEntity ie = findBallEntity(lvl, r);
+			if (ie == null) {
+				continue;
+			}
+			boolean locked = DbzConfig.raidEnabled && !r.cleared;
+			// 護衛が片付く (または襲撃が起きない) まで、触れても取得できないようにする。
+			// 解除後は取得可能にする。
+			ie.setPickupDelay(locked ? 100 : 0);
+			if (locked && !r.raiding) {
+				ServerPlayer p = nearestPlayerWithin(lvl, r.x, r.y, r.z, DbzConfig.raidTriggerRadius);
+				if (p != null) {
+					startRaid(n, r, lvl, p);
+				}
+			}
+		}
+	}
+
+	/** ワールド上の浮遊ボールエンティティを探す。未読み込みなどで無ければ null。 */
+	private ItemEntity findBallEntity(ServerLevel lvl, BallRecord r) {
+		UUID id = ballEntityIds.get(r.number);
+		if (id != null) {
+			Entity e = lvl.getEntity(id);
+			if (e instanceof ItemEntity ie && BallStacks.numberOf(ie.getItem()) == r.number) {
+				return ie;
+			}
+		}
+		// UUIDが分からなくなっている場合 (チャンク再読み込みなど) は周囲を探す
+		var area = new net.minecraft.world.phys.AABB(r.x - 2, r.y - 2, r.z - 2, r.x + 2, r.y + 2, r.z + 2);
+		for (ItemEntity ie : lvl.getEntitiesOfClass(ItemEntity.class, area)) {
+			if (BallStacks.numberOf(ie.getItem()) == r.number
+					&& r.serial.equals(BallStacks.serialOf(ie.getItem()))) {
+				ballEntityIds.put(r.number, ie.getUUID());
+				return ie;
+			}
+		}
+		return null;
+	}
+
+	private static ServerPlayer nearestPlayerWithin(ServerLevel lvl, double x, double y, double z, double radius) {
+		ServerPlayer best = null;
+		double bestD = radius * radius;
+		for (ServerPlayer p : lvl.getPlayers()) {
+			double d = p.distanceToSqr(x, y, z);
+			if (d <= bestD) {
+				bestD = d;
+				best = p;
+			}
+		}
+		return best;
+	}
+
+	/** 今この時点で「取得済み (プレイヤーが持っている)」ボールの数。 */
+	private int countCollected() {
+		int c = 0;
+		for (int i = 1; i <= 7; i++) {
+			BallRecord r = records[i];
+			if (r != null && !r.pending && r.kind == Kind.PLAYER) {
+				c++;
+			}
+		}
+		return c;
+	}
+
+	/**
+	 * ボールにプレイヤーが触れた: 護衛をスポーンさせ、襲撃を開始する。
+	 * 取得済みのボールが多いほど (1個目→7個目の順に) 護衛の数とエリート化の確率が上がる。
+	 */
+	private void startRaid(int n, BallRecord r, ServerLevel lvl, ServerPlayer triggerer) {
+		String[] pool = DbzConfig.raidEnemies.split(",");
+		String[] elitePool = DbzConfig.raidEliteEffects.split(",");
+
+		int collected = DbzConfig.raidScaling ? countCollected() : 0;
+		int minions = DbzConfig.raidMinions
+				+ (DbzConfig.raidScaling ? collected * DbzConfig.raidExtraMinionsPerBall : 0);
+		minions = Math.min(48, Math.max(1, minions));
+		double eliteChance = DbzConfig.raidScaling
+				? Math.min(1.0, collected * DbzConfig.raidEliteChancePerBall)
+				: 0.0;
+
+		List<UUID> guards = new ArrayList<>();
+		for (int i = 0; i < minions; i++) {
+			String spec = pool[random.nextInt(pool.length)].trim();
+			// エリート化: 設定確率で、追加の効果 (持続・レベル) を掛ける
+			if (eliteChance > 0 && random.nextDouble() < eliteChance) {
+				String effect = elitePool[random.nextInt(elitePool.length)].trim();
+				spec = spec + "#effect:" + effect + ":" + DbzConfig.raidEliteSeconds
+						+ ":" + DbzConfig.raidEliteAmplifier;
+			}
+			double angle = random.nextDouble() * Math.PI * 2.0;
+			double dist = 1.5 + random.nextDouble() * Math.max(0.0, DbzConfig.raidSpawnRadius - 1.5);
+			List<Entity> spawned = new ArrayList<>();
+			Compat.spawnEnemy(lvl, spec,
+					r.x + Math.cos(angle) * dist, r.y, r.z + Math.sin(angle) * dist, triggerer, spawned);
+			// 騎乗している敵・騎乗馬もすべて護衛として数える
+			for (Entity e : spawned) {
+				guards.add(e.getUUID());
+			}
+		}
+		if (guards.isEmpty()) {
+			// 敵を出せなかったときは、ボールが取れない状態のままにならないようにする
+			r.cleared = true;
+			logEvent("{}番竜玉の襲撃: 護衛をスポーンできませんでした。ボールは取得可能なままにします。", n);
+			save();
+			return;
+		}
+		r.raiding = true;
+		r.cleared = false;
+		raidGuards.put(n, guards);
+		save();
+		logEvent("{}番竜玉の襲撃が発生しました (護衛 {} 体 / 取得済み {} 個)", n, guards.size(), collected);
+		String strengthTag = DbzConfig.raidScaling ? " (取得済み " + collected + " 個)" : "";
+		server.getPlayerList().broadcastSystemMessage(
+				Component.literal("【襲撃】" + ModItems.BALL_NAMES[n - 1] + " を守る護衛が現れた！護衛をせん滅すると、もう一度触れて取得できる。" + strengthTag),
+				false);
+	}
+
+	/** 護衛が全滅したかを確認し、全滅していたら襲撃を終了 (ボールが取得可能) にする。 */
+	private void checkRaidCleared(int n, BallRecord r) {
+		List<UUID> guards = raidGuards.get(n);
+		if (guards == null || guards.isEmpty()) {
+			// 台帳上は襲撃中だが護衛の記録がない (サーバー再起動など) → 全滅扱い
+			endRaid(n, r);
+			return;
+		}
+		ServerLevel lvl = levelOf(r.dimension);
+		if (lvl == null) {
+			// ディメンションが見つからない。ここでは判断しない
+			return;
+		}
+		// ボールの周囲が読み込まれていない間は判定しない (チャンク外にいる護衛を
+		// 死亡と誤判定しないため)
+		if (!lvl.hasChunkAt(BlockPos.containing(r.x, r.y, r.z))) {
+			return;
+		}
+		int alive = 0;
+		for (UUID id : guards) {
+			Entity e = lvl.getEntity(id);
+			if (e != null && e.isAlive()) {
+				alive++;
+			}
+		}
+		if (alive == 0) {
+			endRaid(n, r);
+		}
+	}
+
+	/** 襲撃終了: ボールに再触れすると取得できる状態にする。 */
+	private void endRaid(int n, BallRecord r) {
+		r.raiding = false;
+		r.cleared = true;
+		raidGuards.remove(n);
+		save();
+		logEvent("{}番竜玉の護衛を全滅。ボールは再触場で取得可能。", n);
+		server.getPlayerList().broadcastSystemMessage(
+				Component.literal("【襲撃】" + ModItems.BALL_NAMES[n - 1] + " の護衛をせん滅した！もう一度竜玉に触れて取得しよう。"),
+				false);
+	}
+
+	/** 運営用: 襲撃を強制的に終わらせる (敵が行方不明などのとき)。 */
+	public boolean forceClear(int n) {
+		BallRecord r = records[n];
+		if (r == null || !r.raiding) {
+			return false;
+		}
+		endRaid(n, r);
+		return true;
+	}
+
+	// ------------------------------------------------------------------
 	//  管理コマンド用
 	// ------------------------------------------------------------------
 
@@ -656,22 +839,21 @@ public final class BallManager {
 			return false;
 		}
 		r.serial = newSerial();
-		boolean ok = placeBall(lvl, new BlockPos(r.homeX, r.homeY, r.homeZ), r, true, false);
+		boolean ok = placeBall(lvl, new BlockPos(r.homeX, r.homeY, r.homeZ), r, false);
 		save();
 		return ok;
 	}
 
-	/** 指定位置に銅チェストごと移動する。 */
+	/** 指定位置 (その場の浮遊状態) へ移動する。 */
 	public boolean moveHere(int n, ServerLevel level, BlockPos pos) {
 		BallRecord r = records[n];
 		if (r == null) return false;
 		BlockState state = level.getBlockState(pos);
-		boolean hasContainer = level.getBlockEntity(pos) instanceof Container;
-		if (!hasContainer && !(state.isAir() || state.canBeReplaced())) {
+		if (!(state.isAir() || state.canBeReplaced())) {
 			return false;
 		}
 		r.serial = newSerial();
-		boolean ok = placeBall(level, pos, r, true, true);
+		boolean ok = placeBall(level, pos, r, true);
 		save();
 		return ok;
 	}
@@ -683,6 +865,9 @@ public final class BallManager {
 		r.serial = newSerial();
 		r.pending = false;
 		r.missing = 0;
+		r.raiding = false;
+		r.cleared = false;
+		raidGuards.remove(n);
 		ItemStack stack = BallStacks.create(n, r.serial);
 		if (!player.getInventory().add(stack)) {
 			Block.popResource(player.level(), player.blockPosition(), stack);
@@ -713,6 +898,11 @@ public final class BallManager {
 			case NONE -> r.kind.label;
 			default -> r.kind.label + " @ " + formatPos(r);
 		};
+		if (r.raiding) {
+			where += " [襲撃中: 護衛をせん滅すると取得可能]";
+		} else if (r.cleared) {
+			where += " [護衛せん滅済み: 触れると取得可能]";
+		}
 		return where;
 	}
 

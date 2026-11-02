@@ -1,12 +1,25 @@
 package com.dbzserver.dragonball;
 
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.equipment.Equippable;
+import net.minecraft.world.phys.Vec3;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Minecraft のバージョン間で名前が変わった機能を、どの版でも動かすための橋渡し。
@@ -14,6 +27,12 @@ import java.lang.reflect.Method;
 public final class Compat {
 	/** 無敵にするメソッド。26.1 では setInvulnerable、26.3 では setPermanentlyInvulnerable。 */
 	private static final Method INVULNERABLE = findInvulnerable();
+	/** 重力を無くすメソッド (名前は版で変わりうる)。 */
+	private static final Method NO_GRAVITY = findNoGravity();
+	/** 速度を設定するメソッド (名前は版で変わりうる)。 */
+	private static final Method MOTION = findMotion();
+	/** エンティティをワールドに追加するメソッド (名前は版で変わりうる)。 */
+	private static final Method ADD_ENTITY = findAddEntity();
 
 	private Compat() {
 	}
@@ -40,6 +59,397 @@ public final class Compat {
 		} catch (ReflectiveOperationException e) {
 			// 失敗しても致命的ではない
 		}
+	}
+
+	private static Method findNoGravity() {
+		for (String name : new String[]{"setNoGravity", "setNoGravityEnabled"}) {
+			try {
+				return Entity.class.getMethod(name, boolean.class);
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補を試す
+			}
+		}
+		try {
+			// setGravity は意味が逆 (true = 重力あり)
+			return Entity.class.getMethod("setGravity", boolean.class);
+		} catch (NoSuchMethodException e) {
+			DragonBallMod.LOGGER.warn("重力を制御するメソッドが見つかりませんでした。ボールが地面に落ちる可能性があります。");
+			return null;
+		}
+	}
+
+	private static Method findMotion() {
+		for (String name : new String[]{"setDeltaMovement", "setVelocity", "setMotion"}) {
+			try {
+				return Entity.class.getMethod(name, Vec3.class);
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補を試す
+			}
+		}
+		DragonBallMod.LOGGER.warn("速度を設定するメソッドが見つかりませんでした。配置直後のボールが動く可能性があります。");
+		return null;
+	}
+
+	/** エンティティを重力の影響を受けないようにする (ふわふわ浮かせる)。 */
+	public static void makeFloat(Entity entity) {
+		if (NO_GRAVITY == null) {
+			return;
+		}
+		try {
+			// setGravity は意味が逆なので false を渡す
+			NO_GRAVITY.invoke(entity, !NO_GRAVITY.getName().equals("setGravity"));
+		} catch (ReflectiveOperationException e) {
+			// 失敗しても致命的ではない
+		}
+	}
+
+	/** エンティティの速度を 0 にする。 */
+	public static void stopMotion(Entity entity) {
+		if (MOTION == null) {
+			return;
+		}
+		try {
+			MOTION.invoke(entity, Vec3.ZERO);
+		} catch (ReflectiveOperationException e) {
+			// 失敗しても致命的ではない
+		}
+	}
+
+	private static Method findAddEntity() {
+		for (String name : new String[]{"addFreshEntity", "addEntity"}) {
+			try {
+				return ServerLevel.class.getMethod(name, Entity.class);
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補を試す
+			}
+		}
+		DragonBallMod.LOGGER.error("エンティティをワールドに追加するメソッドが見つかりませんでした。ボールを配置できません。");
+		return null;
+	}
+
+	/** エンティティをワールドに追加する。どちらの名前でもない版では失敗を返す。 */
+	public static boolean spawnEntity(ServerLevel level, Entity entity) {
+		if (ADD_ENTITY == null) {
+			return false;
+		}
+		try {
+			return (Boolean) ADD_ENTITY.invoke(level, entity);
+		} catch (ReflectiveOperationException e) {
+			return false;
+		}
+	}
+
+	// ------------------------------------------------------------------
+	//  襲撃イベント: 敵のスポーン
+	// ------------------------------------------------------------------
+
+	/** 設定で使える敵IDと、そのクラス名 (Mojang公式マッピング)。 */
+	private static final Map<String, String> ENEMY_CLASSES = new TreeMap<>(Map.ofEntries(
+			Map.entry("minecraft:zombie", "net.minecraft.world.entity.monster.Zombie"),
+			Map.entry("minecraft:husk", "net.minecraft.world.entity.monster.Husk"),
+			Map.entry("minecraft:drowned", "net.minecraft.world.entity.monster.Drowned"),
+			Map.entry("minecraft:zombie_villager", "net.minecraft.world.entity.monster.ZombieVillager"),
+			Map.entry("minecraft:skeleton", "net.minecraft.world.entity.monster.Skeleton"),
+			Map.entry("minecraft:stray", "net.minecraft.world.entity.monster.Stray"),
+			Map.entry("minecraft:wither_skeleton", "net.minecraft.world.entity.monster.WitherSkeleton"),
+			Map.entry("minecraft:bogged", "net.minecraft.world.entity.monster.Bogged"),
+			Map.entry("minecraft:spider", "net.minecraft.world.entity.monster.Spider"),
+			Map.entry("minecraft:cave_spider", "net.minecraft.world.entity.monster.CaveSpider"),
+			Map.entry("minecraft:creeper", "net.minecraft.world.entity.monster.Creeper"),
+			Map.entry("minecraft:witch", "net.minecraft.world.entity.monster.Witch"),
+			Map.entry("minecraft:pillager", "net.minecraft.world.entity.monster.Pillager"),
+			Map.entry("minecraft:vindicator", "net.minecraft.world.entity.monster.Vindicator"),
+			Map.entry("minecraft:evoker", "net.minecraft.world.entity.monster.Evoker"),
+			Map.entry("minecraft:ravager", "net.minecraft.world.entity.monster.Ravager"),
+			Map.entry("minecraft:vex", "net.minecraft.world.entity.monster.Vex"),
+			Map.entry("minecraft:blaze", "net.minecraft.world.entity.monster.Blaze"),
+			Map.entry("minecraft:enderman", "net.minecraft.world.entity.monster.Enderman"),
+			Map.entry("minecraft:endermite", "net.minecraft.world.entity.monster.Endermite"),
+			Map.entry("minecraft:phantom", "net.minecraft.world.entity.monster.Phantom"),
+			Map.entry("minecraft:skeleton_horse", "net.minecraft.world.entity.animal.horse.SkeletonHorse"),
+			Map.entry("minecraft:zombie_horse", "net.minecraft.world.entity.animal.horse.ZombieHorse")));
+
+	/** 騎乗 (#rider: / #passenger:) に使えるMob。ENEMY_CLASSES のIDもそのまま使える。 */
+	private static final Map<String, String> EXTRA_MOUNT_CLASSES = new TreeMap<>(Map.ofEntries(
+			Map.entry("minecraft:chicken", "net.minecraft.world.entity.animal.Chicken"),
+			Map.entry("minecraft:horse", "net.minecraft.world.entity.animal.horse.Horse"),
+			Map.entry("minecraft:donkey", "net.minecraft.world.entity.animal.horse.Donkey"),
+			Map.entry("minecraft:mule", "net.minecraft.world.entity.animal.horse.Mule"),
+			Map.entry("minecraft:wolf", "net.minecraft.world.entity.animal.wolf.Wolf"),
+			Map.entry("minecraft:cow", "net.minecraft.world.entity.animal.Cow"),
+			Map.entry("minecraft:pig", "net.minecraft.world.entity.animal.pig.Pig"),
+			Map.entry("minecraft:sheep", "net.minecraft.world.entity.animal.sheep.Sheep")));
+
+	/** 位置を設定するメソッド (名前は版で変わりうる)。 */
+	private static final Method SET_POS = findSetPos();
+
+	private static Method findSetPos() {
+		for (String name : new String[]{"setPosition", "setPos", "setLocation"}) {
+			try {
+				return Entity.class.getMethod(name, double.class, double.class, double.class);
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補を試す
+			}
+		}
+		DragonBallMod.LOGGER.warn("位置を設定するメソッドが見つかりませんでした。襲撃の敵を配置できません。");
+		return null;
+	}
+
+	private static String classFor(String id) {
+		String c = ENEMY_CLASSES.get(id);
+		return c != null ? c : EXTRA_MOUNT_CLASSES.get(id);
+	}
+
+	private static String normalizeId(String id) {
+		id = id.trim().toLowerCase();
+		return id.contains(":") ? id : "minecraft:" + id;
+	}
+
+	/**
+	 * 設定の1項目を解析した結果。
+	 * 書式: <敵ID>[#baby][#charged][#rider:<敵ID>][#passenger:<敵ID>][#effect:<効果ID>[:秒[:レベル]]]...
+	 */
+	private record EnemyEntry(String baseId, boolean baby, boolean charged, String riderId, String passengerId,
+			List<String[]> effects) {
+	}
+
+	private static EnemyEntry parseSpec(String raw) {
+		String[] parts = raw.trim().split("#");
+		String baseId = normalizeId(parts[0]);
+		boolean baby = false;
+		boolean charged = false;
+		String rider = null;
+		String passenger = null;
+		List<String[]> effects = new ArrayList<>();
+		for (int i = 1; i < parts.length; i++) {
+			String m = parts[i].trim();
+			if (m.isEmpty()) {
+				continue;
+			}
+			String lower = m.toLowerCase();
+			if (lower.equals("baby")) {
+				baby = true;
+			} else if (lower.equals("charged")) {
+				charged = true; // creeper を帯電状態にする
+			} else if (lower.startsWith("rider:")) {
+				rider = normalizeId(m.substring(6)); // この敵に騎乗する敵
+			} else if (lower.startsWith("passenger:")) {
+				passenger = normalizeId(m.substring(10)); // この敵が騎乗するMob
+			} else if (lower.startsWith("effect:")) {
+				effects.add(m.substring(7).trim().split(":"));
+			} else {
+				DragonBallMod.LOGGER.warn("raid.enemies の分からない修飾子です (無視しました): #{}", m);
+			}
+		}
+		return new EnemyEntry(baseId, baby, charged, rider, passenger, effects);
+	}
+
+	/**
+	 * 設定項目 (書式は enemyHelpLines() 参照) に対応する敵をスポーンさせる。
+	 * 騎乗で追加された敵も含め、スポーンしたすべてのエンティティを spawnedOut に足す。
+	 * 失敗時は null (spawnedOut には何も足さない)。
+	 */
+	public static Entity spawnEnemy(ServerLevel level, String spec, double x, double y, double z, Player target,
+			List<Entity> spawnedOut) {
+		EnemyEntry entry = parseSpec(spec);
+		Entity main = spawnOne(level, entry.baseId, x, y, z, target, entry);
+		if (main == null) {
+			return null;
+		}
+		List<Entity> extra = new ArrayList<>();
+		// #passenger:<Mob>: この敵が <Mob> の上に騎乗する (例: zombie#passenger:chicken = ニワトリに乗ったゾンビ)
+		if (entry.passengerId != null) {
+			Entity mount = spawnOne(level, entry.passengerId, x, y, z, target, null);
+			if (mount != null) {
+				addPassenger(mount, main);
+				extra.add(mount);
+			}
+		}
+		// #rider:<敵ID>: <敵ID>がこの敵の上に騎乗する (例: skeleton_horse#rider:skeleton = スケルトンホースマン)
+		if (entry.riderId != null) {
+			Entity rider = spawnOne(level, entry.riderId, x, y, z, target, null);
+			if (rider != null) {
+				addPassenger(main, rider);
+				extra.add(rider);
+			}
+		}
+		List<Entity> all = new ArrayList<>();
+		all.add(main);
+		all.addAll(extra);
+		spawnedOut.addAll(all);
+		return main;
+	}
+
+	/** 1体スポーンさせる。flags が null でない場合、baby / charged / effect を適用する。 */
+	private static Entity spawnOne(ServerLevel level, String id, double x, double y, double z, Player target,
+			EnemyEntry flags) {
+		String className = classFor(id);
+		if (className == null) {
+			DragonBallMod.LOGGER.warn("未知の敵IDです (スキップします): {}", id);
+			return null;
+		}
+		try {
+			Class<?> clazz = Class.forName(className);
+			Constructor<?> ctor = clazz.getConstructor(ServerLevel.class);
+			Entity entity = (Entity) ctor.newInstance(level);
+			if (SET_POS != null) {
+				SET_POS.invoke(entity, x, y, z);
+			}
+			if (entity instanceof LivingEntity living) {
+				// チャンクアンロードで消えないようにする (名前は全版共通の想定。無ければ諦める)
+				try {
+					Method persistent = LivingEntity.class.getMethod("setPersistenceRequired");
+					persistent.invoke(living);
+				} catch (NoSuchMethodException ignored) {
+					// 敵が消えても「全滅」とみなされるだけ
+				}
+				if (target != null) {
+					try {
+						Method setTarget = LivingEntity.class.getMethod("setTarget", LivingEntity.class);
+						setTarget.invoke(living, target);
+					} catch (ReflectiveOperationException ignored) {
+						// 追わない敵でも構わない
+					}
+				}
+			}
+			if (flags != null) {
+				if (flags.baby()) {
+					applyBaby(entity);
+				}
+				if (flags.charged()) {
+					applyCharged(entity);
+				}
+				for (String[] eff : flags.effects()) {
+					applyEffect(entity, eff);
+				}
+			}
+			if (!spawnEntity(level, entity)) {
+				return null;
+			}
+			return entity;
+		} catch (ReflectiveOperationException | LinkageError e) {
+			DragonBallMod.LOGGER.warn("敵をスポーンできませんでした ({}): {}", id, e.toString());
+			return null;
+		}
+	}
+
+	/** #baby: 赤ちゃん版にする。 */
+	private static void applyBaby(Entity entity) {
+		for (Method m : entity.getClass().getMethods()) {
+			if (m.getName().equals("setBaby") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == boolean.class) {
+				try {
+					m.invoke(entity, true);
+				} catch (ReflectiveOperationException ignored) {
+					// 赤ちゃん化できなくてもそのまま出す
+				}
+				return;
+			}
+		}
+	}
+
+	/** #charged: クリーパーを帯電状態にする。 */
+	private static void applyCharged(Entity entity) {
+		for (Method m : entity.getClass().getMethods()) {
+			if (m.getName().equals("setPowered") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == boolean.class) {
+				try {
+					m.invoke(entity, true);
+				} catch (ReflectiveOperationException ignored) {
+					// 帯電できなくてもそのまま出す
+				}
+				return;
+			}
+		}
+	}
+
+	/** #effect:<効果ID>[:秒[:レベル]]: モブ効果を掛ける (初期値: 60秒・レベル1)。 */
+	private static void applyEffect(Entity entity, String[] segments) {
+		if (segments.length < 1 || !(entity instanceof LivingEntity living)) {
+			return;
+		}
+		// 効果IDは "minecraft:strength" のようにコロンを含む。
+		// 「最初の数値」を境界として、それより前をID、後を秒・レベルとみなす。
+		int numStart = segments.length;
+		for (int i = 1; i < segments.length; i++) {
+			try {
+				Integer.parseInt(segments[i].trim());
+				numStart = i;
+				break;
+			} catch (NumberFormatException ignored) {
+				// まだIDの一部
+			}
+		}
+		String effectId = String.join(":", java.util.Arrays.copyOfRange(segments, 0, numStart)).trim();
+		MobEffect effect = BuiltInRegistries.MOB_EFFECT.getValue(Identifier.parse(normalizeId(effectId)));
+		if (effect == null) {
+			DragonBallMod.LOGGER.warn("raid.enemies の効果IDが分かりません (無視しました): {}", effectId);
+			return;
+		}
+		int seconds = 60;
+		int amplifier = 0;
+		try {
+			if (segments.length >= numStart + 1) {
+				seconds = Integer.parseInt(segments[numStart].trim());
+			}
+			if (segments.length >= numStart + 2) {
+				amplifier = Integer.parseInt(segments[numStart + 1].trim());
+			}
+		} catch (NumberFormatException e) {
+			DragonBallMod.LOGGER.warn("raid.enemies の効果の数値が不正です (無視しました): {}", (Object) segments);
+			return;
+		}
+		int ticks = Math.max(1, seconds) * 20;
+		try {
+			Object instance = null;
+			try {
+				Constructor<?> ctor = MobEffectInstance.class.getConstructor(Holder.class, int.class, int.class);
+				instance = ctor.newInstance(BuiltInRegistries.MOB_EFFECT.wrap(effect), ticks, amplifier);
+			} catch (NoSuchMethodException e) {
+				Constructor<?> ctor = MobEffectInstance.class.getConstructor(MobEffect.class, int.class, int.class);
+				instance = ctor.newInstance(effect, ticks, amplifier);
+			}
+			Method addEffect = LivingEntity.class.getMethod("addEffect", MobEffectInstance.class);
+			addEffect.invoke(living, instance);
+		} catch (ReflectiveOperationException e) {
+			DragonBallMod.LOGGER.warn("効果を適用できませんでした ({}) : {}", effectId, e.toString());
+		}
+	}
+
+	/** a に b を騎乗させる (メソッド名の版差異は検索で吸収)。 */
+	private static void addPassenger(Entity vehicle, Entity rider) {
+		try {
+			Method m = Entity.class.getMethod("addPassenger", Entity.class);
+			m.invoke(vehicle, rider);
+		} catch (ReflectiveOperationException e) {
+			DragonBallMod.LOGGER.warn("騎乗を設定できませんでした: {}", e.toString());
+		}
+	}
+
+	/** raid.enemies に書ける内容の一覧 (設定ファイルのコメント・ /db enemies 用)。 */
+	public static List<String> enemyHelpLines() {
+		List<String> out = new ArrayList<>();
+		out.add("【基本の敵ID】");
+		out.add(String.join(", ", ENEMY_CLASSES.keySet()));
+		out.add("【騎乗に追加で使えるID (敵ではないMob)】");
+		out.add(String.join(", ", EXTRA_MOUNT_CLASSES.keySet()));
+		out.add("【修飾子】");
+		out.add("#baby ... 赤ちゃん版 (ゾンビ系・動物系など)");
+		out.add("#charged ... 帯電クリーパー");
+		out.add("#rider:<敵ID> ... その敵がこの敵の上に騎乗する");
+		out.add("#passenger:<MobID> ... この敵がそのMobの上に騎乗する");
+		out.add("#effect:<効果ID>[:秒[:レベル]] ... モブ効果を掛けて出す (初期値: 60秒・レベル1)");
+		out.add("【#effect: で使える効果ID】");
+		List<String> effectIds = new ArrayList<>();
+		BuiltInRegistries.MOB_EFFECT.holderIds().forEach(k -> effectIds.add(k.location().toString()));
+		java.util.Collections.sort(effectIds);
+		out.add(String.join(", ", effectIds));
+		out.add("【例】");
+		out.add("minecraft:zombie#passenger:minecraft:chicken ... ニワトリに乗ったゾンビ");
+		out.add("minecraft:skeleton_horse#rider:minecraft:skeleton ... スケルトンホースマン");
+		out.add("minecraft:spider#rider:minecraft:skeleton ... スパイダージョッキー");
+		out.add("minecraft:creeper#charged ... 帯電クリーパー");
+		out.add("minecraft:zombie#effect:strength:120:1 ... 力強さIIを120秒掛けたゾンビ");
+		out.add("minecraft:zombie#baby#effect:speed ... 素早い赤ちゃんゾンビ");
+		return out;
 	}
 
 	/**

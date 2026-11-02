@@ -25,7 +25,8 @@ public final class DbzConfig {
 	public static int maxAttempts = 80;
 	public static boolean avoidOcean = true;
 	public static boolean avoidRiver = true;
-	public static boolean waxedChest = true;
+	/** ボールがふわふわ浮いている高さ (地面の上からの高さ。ブロック単位)。 */
+	public static double floatHeight = 0.8;
 
 	// ---- レーダー ----
 	public static int radarUpdateTicks = 20;
@@ -38,6 +39,28 @@ public final class DbzConfig {
 	// ---- ログ・告知 ----
 	public static boolean logEvents = true;
 	public static boolean broadcastPickup = false;
+
+	// ---- 竜玉の襲撃イベント (浮遊ボールに触れると護衛が現れ、全滅で再触れて取得) ----
+	public static boolean raidEnabled = true;
+	/** 触れたと判定される距離 (ブロック) */
+	public static double raidTriggerRadius = 1.2;
+	/** 出す敵の数 (基準値。 scaling が有効なときは、取得済みの数に応じて増える) */
+	public static int raidMinions = 6;
+	/** 敵をスポーンさせる範囲の半径 (ブロック) */
+	public static double raidSpawnRadius = 6.0;
+	/** 出す敵のID (カンマ区切り。この中からランダムに選ばれる) */
+	public static String raidEnemies = "minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch";
+	/** true にすると、残りの未取得ボールの少ない順 (1個目→7個目の取得順) に襲撃が強くになる */
+	public static boolean raidScaling = true;
+	/** 取得済みボール1個ごとに増える護衛の数 (基準値に加算) */
+	public static int raidExtraMinionsPerBall = 1;
+	/** 取得済みボール1個ごとに、各護衛に掛かる「エリート化」の確率 (0.12 なら12%) */
+	public static double raidEliteChancePerBall = 0.12;
+	/** エリート化した護衛に掛ける効果 (カンマ区切りからランダムに1つ) */
+	public static String raidEliteEffects = "minecraft:strength,minecraft:speed,minecraft:regeneration,minecraft:fire_resistance";
+	/** エリート効果の持続 (秒) とレベル (0 = I, 1 = II) */
+	public static int raidEliteSeconds = 600;
+	public static int raidEliteAmplifier = 0;
 
 	// ---- ギャルのパンティ (頭に被ったときの能力補正)。0 の項目は付かない。反映にはサーバーの再起動が必要 ----
 	public static double pantiesAttackDamage = 10.0;
@@ -80,7 +103,7 @@ public final class DbzConfig {
 			maxAttempts = Math.max(1, getInt(p, "spawn.max_attempts", 80));
 			avoidOcean = getBool(p, "spawn.avoid_ocean", true);
 			avoidRiver = getBool(p, "spawn.avoid_river", true);
-			waxedChest = getBool(p, "spawn.waxed_chest", true);
+			floatHeight = Math.max(0.0, Math.min(10.0, getDouble(p, "spawn.float_height", 0.8)));
 
 			radarUpdateTicks = Math.max(1, getInt(p, "radar.update_interval_ticks", 20));
 			radarMaxRange = Math.max(0, getInt(p, "radar.max_range_blocks", 0));
@@ -90,6 +113,26 @@ public final class DbzConfig {
 
 			logEvents = getBool(p, "log.events", true);
 			broadcastPickup = getBool(p, "announce.pickup", false);
+
+			raidEnabled = getBool(p, "raid.enabled", true);
+			raidTriggerRadius = Math.max(0.5, getDouble(p, "raid.trigger_radius", 1.2));
+			raidMinions = Math.max(1, Math.min(24, getInt(p, "raid.minions", 6)));
+			raidSpawnRadius = Math.max(1.0, Math.min(32.0, getDouble(p, "raid.spawn_radius", 6.0)));
+			String enemies = p.getProperty("raid.enemies");
+			if (enemies == null || enemies.isBlank()) {
+				enemies = "minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch";
+			}
+			raidEnemies = enemies.trim();
+			raidScaling = getBool(p, "raid.scaling", true);
+			raidExtraMinionsPerBall = Math.max(0, Math.min(12, getInt(p, "raid.extra_minions_per_ball", 1)));
+			raidEliteChancePerBall = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.elite_chance_per_ball", 0.12)));
+			String elite = p.getProperty("raid.elite_effects");
+			if (elite == null || elite.isBlank()) {
+				elite = "minecraft:strength,minecraft:speed,minecraft:regeneration,minecraft:fire_resistance";
+			}
+			raidEliteEffects = elite.trim();
+			raidEliteSeconds = Math.max(5, getInt(p, "raid.elite_seconds", 600));
+			raidEliteAmplifier = Math.max(0, Math.min(4, getInt(p, "raid.elite_amplifier", 0)));
 
 			pantiesAttackDamage = getDouble(p, "panties.attack_damage", 10.0);
 			pantiesSpeedMultiplier = getDouble(p, "panties.speed_multiplier", 1.5);
@@ -219,9 +262,10 @@ public final class DbzConfig {
 			# true にすると、川のバイオームには置きません。
 			spawn.avoid_river=true
 
-			# true にすると「ワックス掛け済みの銅チェスト」を置きます (時間が経っても錆びません)。
-			# false にすると普通の銅チェストになり、時間とともに色が変わっていきます。
-			spawn.waxed_chest=true
+			# ボールがふわふわ浮いている高さを決めます (配置場所の地面からの高さ。ブロック単位)。
+			# 0.8 は、操作キャラクターの頭の高さくらいです。数値を大きくするともっと高い位置に浮きます。
+			# ※ 変更の反映には /db reload のあと、/db respawn でボールを置き直してください。
+			spawn.float_height=0.8
 
 
 			# ----------------------------------------------------------
@@ -258,5 +302,61 @@ public final class DbzConfig {
 
 			# true にすると、誰かがボールを入手したとき、全員にチャットで知らせます。
 			announce.pickup=false
+
+
+			# ----------------------------------------------------------
+			#  竜玉の襲撃イベント
+			# ----------------------------------------------------------
+			#  浮いている竜玉に触れると、その竜玉を守る護衛 (敵) が現れます。
+			#  護衛を全部倒すと、もう一度竜玉に触れて取得できるようになります。
+
+			# true にすると襲撃イベントが有効になります。
+			# false にすると、従来どおり触れるだけで取得できます。
+			raid.enabled=true
+
+			# 触れたと判定される距離 (ブロック)。
+			raid.trigger_radius=1.2
+
+			# 現れる護衛の数。
+			raid.minions=6
+
+			# 護衛が竜玉のまわりに現れる範囲の半径 (ブロック)。
+			raid.spawn_radius=6.0
+
+			# 護衛として出す敵 (カンマ区切りで、この中からランダムに選ばれます)。
+			# 書式: <敵ID>[#baby][#charged][#rider:<敵ID>][#passenger:<MobID>][#effect:<効果ID>[:秒[:レベル]]]
+			#   #baby      ... 赤ちゃん版
+			#   #charged   ... 帯電クリーパー
+			#   #rider:    ... その敵がこの敵の上に騎乗する (スケルトンホースマンなど)
+			#   #passenger:... この敵がそのMobの上に騎乗する (ニワトリゾンビなど)
+			#   #effect:   ... モブ効果を掛けて出す (初期値: 60秒・レベル1)
+			# 使えるID・効果ID・書き方の例の完全な一覧は、ゲーム内で /db enemies と入力すると見られます。
+			# 例: minecraft:spider#rider:minecraft:skeleton (スパイダージョッキー)
+			#     minecraft:zombie#effect:minecraft:strength:120:1 (力強さIIのゾンビ)
+			raid.enemies=minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch
+
+			# ----------------------------------------------------------
+			#  襲撃の難易度スケーリング
+			# ----------------------------------------------------------
+			#  true にすると、集めた竜玉の数に応じて襲撃が強くなります。
+			#  (1個目を集めたあとの襲撃が最も弱く、7個目が最も強い)
+
+			raid.scaling=true
+
+			# 集めた竜玉1個ごとに増える護衛の数。
+			# 例: minions=6, extra=1 なら 1個目=7体, 2個目=8体 ... 6個目=12体。
+			raid.extra_minions_per_ball=1
+
+			# 集めた竜玉1個ごとに、各護衛に掛かる「エリート化」の確率。
+			# 0.12 なら 1個目=12%, 2個目=24% ... 6個目=72%。
+			# エリート化した護衛には elite_effects の効果がランダムに1つ掛かります。
+			raid.elite_chance_per_ball=0.12
+
+			# エリート化で掛かる効果 (カンマ区切りからランダムに1つ)。
+			raid.elite_effects=minecraft:strength,minecraft:speed,minecraft:regeneration,minecraft:fire_resistance
+
+			# エリート効果の持続 (秒) とレベル (0 = I, 1 = II, 2 = III ...)。
+			raid.elite_seconds=600
+			raid.elite_amplifier=0
 			""" + PANTIES_SECTION;
 }

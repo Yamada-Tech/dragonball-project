@@ -57,6 +57,9 @@ public final class DbzCommands {
 						.then(argument(NUM, IntegerArgumentType.integer(1, 7)).executes(DbzCommands::returnHome)))
 				.then(literal("sethere")
 						.then(argument(NUM, IntegerArgumentType.integer(1, 7)).executes(DbzCommands::setHere)))
+				.then(literal("clear")
+						.then(argument(NUM, IntegerArgumentType.integer(1, 7)).executes(DbzCommands::forceClear)))
+				.then(literal("enemies").executes(DbzCommands::enemies))
 				.then(literal("audit").executes(DbzCommands::audit))
 				.then(literal("reload").executes(DbzCommands::reload))
 				.then(literal("config").executes(DbzCommands::showConfig)));
@@ -94,8 +97,10 @@ public final class DbzCommands {
 		say(ctx, "/db give <プレイヤー> <1-7>     ボールを既存のものごと移して付与 (複製にならない)");
 		say(ctx, "/db radar [プレイヤー]          ドラゴンレーダーを付与");
 		say(ctx, "/db respawn <1-7|all>           新しいランダム位置へ再配置 (旧実体は削除)");
-		say(ctx, "/db return <1-7>                最初のチェストへ戻す");
-		say(ctx, "/db sethere <1-7>               今いる場所へ銅チェストごと移動");
+		say(ctx, "/db return <1-7>                最初に置かれた場所へ戻す");
+		say(ctx, "/db sethere <1-7>               今いる場所へボールを移動");
+		say(ctx, "/db clear <1-7>                 襲撃を強制的に終わらせる (護衛が行方不明のときなど)");
+		say(ctx, "/db enemies                     襲撃で使える敵IDと設定の書き方の一覧を表示");
 		say(ctx, "/db audit                       整合性チェックを今すぐ実行");
 		say(ctx, "/db reload                      設定ファイルを再読み込み");
 		say(ctx, "/db config                      現在の主な設定値を表示");
@@ -190,7 +195,7 @@ public final class DbzCommands {
 		int n = IntegerArgumentType.getInteger(ctx, NUM);
 		boolean ok = m.returnHome(n);
 		if (ok) {
-			say(ctx, label(n) + " を元のチェストへ戻しました: " + m.describe(m.record(n)));
+			say(ctx, label(n) + " を最初に置かれた場所へ戻しました: " + m.describe(m.record(n)));
 		} else {
 			fail(ctx, label(n) + " を戻せませんでした。");
 		}
@@ -205,11 +210,31 @@ public final class DbzCommands {
 		BlockPos pos = player.blockPosition();
 		boolean ok = m.moveHere(n, (ServerLevel) player.level(), pos);
 		if (ok) {
-			say(ctx, label(n) + " を現在地に銅チェストごと移動しました。");
+			say(ctx, label(n) + " を現在地へ移動しました。");
 		} else {
 			fail(ctx, "ここには置けません (足元に別のブロックがあります)。");
 		}
 		return ok ? 1 : 0;
+	}
+
+	private static int forceClear(CommandContext<CommandSourceStack> ctx) {
+		BallManager m = manager(ctx);
+		if (m == null) return 0;
+		int n = IntegerArgumentType.getInteger(ctx, NUM);
+		if (m.forceClear(n)) {
+			say(ctx, label(n) + " の襲撃を終了しました。もう触れて取得できます。");
+			return 1;
+		}
+		fail(ctx, label(n) + " は襲撃中ではありません。");
+		return 0;
+	}
+
+	private static int enemies(CommandContext<CommandSourceStack> ctx) {
+		say(ctx, "=== 襲撃で使える敵IDと設定の書き方 ===");
+		for (String line : Compat.enemyHelpLines()) {
+			say(ctx, line);
+		}
+		return 1;
 	}
 
 	private static int audit(CommandContext<CommandSourceStack> ctx) {
@@ -233,9 +258,17 @@ public final class DbzCommands {
 		say(ctx, "配置の中心: X=" + DbzConfig.centerX + " Z=" + DbzConfig.centerZ);
 		say(ctx, "配置の範囲: " + DbzConfig.minRadius + " 〜 " + DbzConfig.maxRadius + " ブロック");
 		say(ctx, "ボール同士の最低距離: " + DbzConfig.minBallDistance);
-		say(ctx, "海を避ける: " + DbzConfig.avoidOcean + " / 川を避ける: " + DbzConfig.avoidRiver + " / ワックス掛け: " + DbzConfig.waxedChest);
+		say(ctx, "海を避ける: " + DbzConfig.avoidOcean + " / 川を避ける: " + DbzConfig.avoidRiver + " / 浮く高さ: " + DbzConfig.floatHeight);
 		say(ctx, "レーダー更新: " + DbzConfig.radarUpdateTicks + " tick / 最大距離: " + (DbzConfig.radarMaxRange == 0 ? "無制限" : DbzConfig.radarMaxRange));
 		say(ctx, "整合性チェック間隔: " + DbzConfig.auditIntervalTicks + " tick / 消失判定の猶予: " + DbzConfig.lostGraceAudits + " 回");
+		say(ctx, "襲撃: " + (DbzConfig.raidEnabled ? "有効" : "無効")
+				+ " / 護衛の数: " + DbzConfig.raidMinions
+				+ " / 出現半径: " + DbzConfig.raidSpawnRadius
+				+ " / 敵: " + DbzConfig.raidEnemies);
+		say(ctx, "襲撃スケーリング: " + (DbzConfig.raidScaling ? "有効" : "無効")
+				+ " / +護衛: " + DbzConfig.raidExtraMinionsPerBall + "体/個"
+				+ " / エリート率: +" + Math.round(DbzConfig.raidEliteChancePerBall * 100) + "%/個"
+				+ " / エリート効果: " + DbzConfig.raidEliteEffects);
 		return 1;
 	}
 }

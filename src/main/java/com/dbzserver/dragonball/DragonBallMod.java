@@ -54,11 +54,18 @@ public class DragonBallMod implements ModInitializer {
 		ServerBlockEntityEvents.BLOCK_ENTITY_LOAD.register((blockEntity, level) -> BallManager.onBlockEntityLoad(blockEntity));
 		ServerBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register((blockEntity, level) -> BallManager.onBlockEntityUnload(blockEntity));
 
-		// ボールが落ちたとき、時間経過で消えないようにする
+		// ボールがワールドに現れたとき (配置・落下・チャンクの再読み込み)、
+		// 時間経過で消えないようにし、ふわふわ浮いた状態に戻るよう重力を切る
 		ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> {
-			if (entity instanceof ItemEntity itemEntity && BallStacks.numberOf(itemEntity.getItem()) > 0) {
-				itemEntity.setUnlimitedLifetime();
-				Compat.makeInvulnerable(itemEntity);
+			if (entity instanceof ItemEntity itemEntity) {
+				int number = BallStacks.numberOf(itemEntity.getItem());
+				if (number > 0) {
+					itemEntity.setUnlimitedLifetime();
+					Compat.makeInvulnerable(itemEntity);
+					Compat.makeFloat(itemEntity);
+					Compat.stopMotion(itemEntity);
+					BallManager.onBallEntityLoad(number, itemEntity.getUUID());
+				}
 			}
 		});
 	}

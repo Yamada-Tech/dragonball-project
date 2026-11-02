@@ -23,6 +23,11 @@ public final class BallRecord {
 	/** まだワールドに置けていない (場所探し待ち)。 */
 	public boolean pending;
 
+	/** 護衛襲撃が進行中 (敵が生存している間はボールを取得できない)。 */
+	public boolean raiding;
+	/** 護衛の敵を全滅させた (もう触れると取得できる)。 */
+	public boolean cleared;
+
 	/** 連続して見つからなかった回数 (保存しない)。 */
 	public transient int missing;
 
