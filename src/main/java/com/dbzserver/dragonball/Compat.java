@@ -1,6 +1,6 @@
 package com.dbzserver.dragonball;
 
-import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
@@ -10,11 +10,13 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.equipment.Equippable;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
@@ -179,6 +181,38 @@ public final class Compat {
 			Map.entry("minecraft:cow", "net.minecraft.world.entity.animal.Cow"),
 			Map.entry("minecraft:pig", "net.minecraft.world.entity.animal.pig.Pig"),
 			Map.entry("minecraft:sheep", "net.minecraft.world.entity.animal.sheep.Sheep")));
+
+	/** ワールド内のプレイヤー一覧を返すメソッド (players / getPlayers の無引数版)。 */
+	private static final Method PLAYERS = findPlayers();
+
+	private static Method findPlayers() {
+		for (String name : new String[]{"players", "getPlayers"}) {
+			try {
+				Method m = ServerLevel.class.getMethod(name);
+				if (List.class.isAssignableFrom(m.getReturnType())) {
+					return m;
+				}
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補を試す
+			}
+		}
+		DragonBallMod.LOGGER.warn("プレイヤー一覧を取るメソッドが見つかりませんでした。襲撃の接近判定ができません。");
+		return null;
+	}
+
+	/** ワールド内にいるプレイヤーの一覧 (メソッド名の版差異を吸収)。 */
+	@SuppressWarnings("unchecked")
+	public static List<ServerPlayer> players(ServerLevel level) {
+		if (PLAYERS == null) {
+			return List.of();
+		}
+		try {
+			return (List<ServerPlayer>) PLAYERS.invoke(level);
+		} catch (ReflectiveOperationException e) {
+			DragonBallMod.LOGGER.warn("プレイヤー一覧を取れませんでした: {}", e.toString());
+			return List.of();
+		}
+	}
 
 	/** 位置を設定するメソッド (名前は版で変わりうる)。 */
 	private static final Method SET_POS = findSetPos();
@@ -399,19 +433,60 @@ public final class Compat {
 		}
 		int ticks = Math.max(1, seconds) * 20;
 		try {
+			Object holder = resolveEffectHolder(effect, effectId);
 			Object instance = null;
-			try {
-				Constructor<?> ctor = MobEffectInstance.class.getConstructor(Holder.class, int.class, int.class);
-				instance = ctor.newInstance(BuiltInRegistries.MOB_EFFECT.wrap(effect), ticks, amplifier);
-			} catch (NoSuchMethodException e) {
-				Constructor<?> ctor = MobEffectInstance.class.getConstructor(MobEffect.class, int.class, int.class);
-				instance = ctor.newInstance(effect, ticks, amplifier);
+			// MobEffectInstance のコンストラクタは版で (Holder,...) と (MobEffect,...) が混在する
+			for (Constructor<?> ctor : MobEffectInstance.class.getConstructors()) {
+				Class<?>[] params = ctor.getParameterTypes();
+				if (params.length == 3 && params[1] == int.class && params[2] == int.class) {
+					if (params[0] == MobEffect.class) {
+						instance = ctor.newInstance(effect, ticks, amplifier);
+						break;
+					}
+					if (holder != null) {
+						instance = ctor.newInstance(holder, ticks, amplifier);
+						break;
+					}
+				}
+			}
+			if (instance == null) {
+				DragonBallMod.LOGGER.warn("MobEffectInstance を作れませんでした (効果: {})", effectId);
+				return;
 			}
 			Method addEffect = LivingEntity.class.getMethod("addEffect", MobEffectInstance.class);
 			addEffect.invoke(living, instance);
 		} catch (ReflectiveOperationException e) {
 			DragonBallMod.LOGGER.warn("効果を適用できませんでした ({}) : {}", effectId, e.toString());
 		}
+	}
+
+	/** 効果の Holder を取り出す (Registry のメソッド名は版で違う)。無ければ null。 */
+	@SuppressWarnings({"rawtypes", "unchecked"})
+	private static Object resolveEffectHolder(MobEffect effect, String effectId) {
+		try {
+			Registry registry = BuiltInRegistries.MOB_EFFECT;
+			// getHolder(<ID型>) -> Optional<Holder> 版
+			for (Method m : registry.getClass().getMethods()) {
+				if (m.getName().equals("getHolder") && m.getParameterCount() == 1
+						&& m.getParameterTypes()[0].isInstance(Identifier.parse(effectId))) {
+					Object opt = m.invoke(registry, Identifier.parse(effectId));
+					if (opt instanceof java.util.Optional<?> o) {
+						return o.orElse(null);
+					}
+					return opt;
+				}
+			}
+			// wrap / wrapAsHolder(<MobEffect>) 版
+			for (Method m : registry.getClass().getMethods()) {
+				if ((m.getName().equals("wrap") || m.getName().equals("wrapAsHolder"))
+						&& m.getParameterCount() == 1 && m.getParameterTypes()[0].isInstance(effect)) {
+					return m.invoke(registry, effect);
+				}
+			}
+		} catch (ReflectiveOperationException e) {
+			DragonBallMod.LOGGER.warn("効果の Holder を取得できませんでした ({}): {}", effectId, e.toString());
+		}
+		return null;
 	}
 
 	/** a に b を騎乗させる (メソッド名の版差異は検索で吸収)。 */
@@ -421,6 +496,84 @@ public final class Compat {
 			m.invoke(vehicle, rider);
 		} catch (ReflectiveOperationException e) {
 			DragonBallMod.LOGGER.warn("騎乗を設定できませんでした: {}", e.toString());
+		}
+	}
+
+	/** 使えるモブ効果IDの一覧 (Registry のメソッド名は版で違うので検索する)。 */
+	private static String effectIdList() {
+		List<String> effectIds = new ArrayList<>();
+		for (String name : new String[]{"holderIds", "keySet", "getKeys", "ids"}) {
+			try {
+				Method m = BuiltInRegistries.MOB_EFFECT.getClass().getMethod(name);
+				Object result = m.invoke(BuiltInRegistries.MOB_EFFECT);
+				if (result instanceof Iterable<?> it) {
+					for (Object o : it) {
+						if (o != null) {
+							effectIds.add(o.toString());
+						}
+					}
+					break;
+				}
+			} catch (ReflectiveOperationException ignored) {
+				// 次の候補を試す
+			}
+		}
+		java.util.Collections.sort(effectIds);
+		if (effectIds.isEmpty()) {
+			return "このバージョンでは一覧を取得できませんでした。minecraft:speed, minecraft:strength などの名前で試してください";
+		}
+		return String.join(", ", effectIds);
+	}
+
+	// ------------------------------------------------------------------
+	//  取得遅延 (ItemEntity のメソッド名・フィールド名は版で違う)
+	// ------------------------------------------------------------------
+
+	/** 取得遅延を設定するメソッド (無ければ null)。 */
+	private static final Method PICKUP_DELAY_SET = findPickupDelaySet();
+	/** メソッドが無い版向けのフィールド。 */
+	private static final Field PICKUP_DELAY_FIELD = findPickupDelayField();
+
+	private static Method findPickupDelaySet() {
+		for (String name : new String[]{"setPickupDelay", "setPickupDelayTicks", "setPickupTime"}) {
+			try {
+				return ItemEntity.class.getMethod(name, int.class);
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補を試す
+			}
+		}
+		return null;
+	}
+
+	private static Field findPickupDelayField() {
+		for (String name : new String[]{"pickupDelay", "pickupDelayTicks", "pickupTime"}) {
+			try {
+				Field f = ItemEntity.class.getDeclaredField(name);
+				f.setAccessible(true);
+				return f;
+			} catch (NoSuchFieldException ignored) {
+				// 次の候補を試す
+			}
+		}
+		return null;
+	}
+
+	/** 浮遊ボールの取得遅延を設定する。どちらにも対応できない版では何もしない。 */
+	public static void setPickupDelay(ItemEntity item, int ticks) {
+		if (PICKUP_DELAY_SET != null) {
+			try {
+				PICKUP_DELAY_SET.invoke(item, ticks);
+			} catch (ReflectiveOperationException ignored) {
+				// 何もしない
+			}
+			return;
+		}
+		if (PICKUP_DELAY_FIELD != null) {
+			try {
+				PICKUP_DELAY_FIELD.setInt(item, ticks);
+			} catch (ReflectiveOperationException | IllegalArgumentException ignored) {
+				// 何もしない
+			}
 		}
 	}
 
@@ -438,10 +591,7 @@ public final class Compat {
 		out.add("#passenger:<MobID> ... この敵がそのMobの上に騎乗する");
 		out.add("#effect:<効果ID>[:秒[:レベル]] ... モブ効果を掛けて出す (初期値: 60秒・レベル1)");
 		out.add("【#effect: で使える効果ID】");
-		List<String> effectIds = new ArrayList<>();
-		BuiltInRegistries.MOB_EFFECT.holderIds().forEach(k -> effectIds.add(k.location().toString()));
-		java.util.Collections.sort(effectIds);
-		out.add(String.join(", ", effectIds));
+		out.add(effectIdList());
 		out.add("【例】");
 		out.add("minecraft:zombie#passenger:minecraft:chicken ... ニワトリに乗ったゾンビ");
 		out.add("minecraft:skeleton_horse#rider:minecraft:skeleton ... スケルトンホースマン");

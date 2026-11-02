@@ -455,9 +455,9 @@ public final class BallManager {
 		Compat.stopMotion(ballEntity);
 		if (DbzConfig.raidEnabled) {
 			// 襲撃をクリアするまで取得できないようにする (tickRaids で常時管理)
-			ballEntity.setPickupDelay(200);
+			Compat.setPickupDelay(ballEntity, 200);
 		} else {
-			ballEntity.setPickupDelay(0);
+			Compat.setPickupDelay(ballEntity, 0);
 		}
 		if (!Compat.spawnEntity(level, ballEntity)) {
 			DragonBallMod.LOGGER.error("{}番ボールをスポーンできませんでした ({})", r.number, pos);
@@ -646,7 +646,7 @@ public final class BallManager {
 			boolean locked = DbzConfig.raidEnabled && !r.cleared;
 			// 護衛が片付く (または襲撃が起きない) まで、触れても取得できないようにする。
 			// 解除後は取得可能にする。
-			ie.setPickupDelay(locked ? 100 : 0);
+			Compat.setPickupDelay(ie, locked ? 100 : 0);
 			if (locked && !r.raiding) {
 				ServerPlayer p = nearestPlayerWithin(lvl, r.x, r.y, r.z, DbzConfig.raidTriggerRadius);
 				if (p != null) {
@@ -680,7 +680,7 @@ public final class BallManager {
 	private static ServerPlayer nearestPlayerWithin(ServerLevel lvl, double x, double y, double z, double radius) {
 		ServerPlayer best = null;
 		double bestD = radius * radius;
-		for (ServerPlayer p : lvl.getPlayers()) {
+		for (ServerPlayer p : Compat.players(lvl)) {
 			double d = p.distanceToSqr(x, y, z);
 			if (d <= bestD) {
 				bestD = d;
