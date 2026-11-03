@@ -1,5 +1,6 @@
 package com.dbzserver.dragonball;
 
+import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
@@ -9,8 +10,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.equipment.Equippable;
@@ -21,8 +25,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * Minecraft のバージョン間で名前が変わった機能を、どの版でも動かすための橋渡し。
@@ -146,42 +148,19 @@ public final class Compat {
 	//  襲撃イベント: 敵のスポーン
 	// ------------------------------------------------------------------
 
-	/** 設定で使える敵IDと、そのクラス名 (Mojang公式マッピング)。 */
-	private static final Map<String, String> ENEMY_CLASSES = new TreeMap<>(Map.ofEntries(
-			Map.entry("minecraft:zombie", "net.minecraft.world.entity.monster.Zombie"),
-			Map.entry("minecraft:husk", "net.minecraft.world.entity.monster.Husk"),
-			Map.entry("minecraft:drowned", "net.minecraft.world.entity.monster.Drowned"),
-			Map.entry("minecraft:zombie_villager", "net.minecraft.world.entity.monster.ZombieVillager"),
-			Map.entry("minecraft:skeleton", "net.minecraft.world.entity.monster.Skeleton"),
-			Map.entry("minecraft:stray", "net.minecraft.world.entity.monster.Stray"),
-			Map.entry("minecraft:wither_skeleton", "net.minecraft.world.entity.monster.WitherSkeleton"),
-			Map.entry("minecraft:bogged", "net.minecraft.world.entity.monster.Bogged"),
-			Map.entry("minecraft:spider", "net.minecraft.world.entity.monster.Spider"),
-			Map.entry("minecraft:cave_spider", "net.minecraft.world.entity.monster.CaveSpider"),
-			Map.entry("minecraft:creeper", "net.minecraft.world.entity.monster.Creeper"),
-			Map.entry("minecraft:witch", "net.minecraft.world.entity.monster.Witch"),
-			Map.entry("minecraft:pillager", "net.minecraft.world.entity.monster.Pillager"),
-			Map.entry("minecraft:vindicator", "net.minecraft.world.entity.monster.Vindicator"),
-			Map.entry("minecraft:evoker", "net.minecraft.world.entity.monster.Evoker"),
-			Map.entry("minecraft:ravager", "net.minecraft.world.entity.monster.Ravager"),
-			Map.entry("minecraft:vex", "net.minecraft.world.entity.monster.Vex"),
-			Map.entry("minecraft:blaze", "net.minecraft.world.entity.monster.Blaze"),
-			Map.entry("minecraft:enderman", "net.minecraft.world.entity.monster.Enderman"),
-			Map.entry("minecraft:endermite", "net.minecraft.world.entity.monster.Endermite"),
-			Map.entry("minecraft:phantom", "net.minecraft.world.entity.monster.Phantom"),
-			Map.entry("minecraft:skeleton_horse", "net.minecraft.world.entity.animal.horse.SkeletonHorse"),
-			Map.entry("minecraft:zombie_horse", "net.minecraft.world.entity.animal.horse.ZombieHorse")));
+	/** 設定で使える敵ID (エンティティタイプの registry ID。クラス名には依存しない)。 */
+	private static final List<String> ENEMY_IDS = List.of(
+			"minecraft:zombie", "minecraft:husk", "minecraft:drowned", "minecraft:zombie_villager",
+			"minecraft:skeleton", "minecraft:stray", "minecraft:wither_skeleton", "minecraft:bogged",
+			"minecraft:spider", "minecraft:cave_spider", "minecraft:creeper", "minecraft:witch",
+			"minecraft:pillager", "minecraft:vindicator", "minecraft:evoker", "minecraft:ravager",
+			"minecraft:vex", "minecraft:blaze", "minecraft:enderman", "minecraft:endermite",
+			"minecraft:phantom", "minecraft:skeleton_horse", "minecraft:zombie_horse");
 
-	/** 騎乗 (#rider: / #passenger:) に使えるMob。ENEMY_CLASSES のIDもそのまま使える。 */
-	private static final Map<String, String> EXTRA_MOUNT_CLASSES = new TreeMap<>(Map.ofEntries(
-			Map.entry("minecraft:chicken", "net.minecraft.world.entity.animal.Chicken"),
-			Map.entry("minecraft:horse", "net.minecraft.world.entity.animal.horse.Horse"),
-			Map.entry("minecraft:donkey", "net.minecraft.world.entity.animal.horse.Donkey"),
-			Map.entry("minecraft:mule", "net.minecraft.world.entity.animal.horse.Mule"),
-			Map.entry("minecraft:wolf", "net.minecraft.world.entity.animal.wolf.Wolf"),
-			Map.entry("minecraft:cow", "net.minecraft.world.entity.animal.Cow"),
-			Map.entry("minecraft:pig", "net.minecraft.world.entity.animal.pig.Pig"),
-			Map.entry("minecraft:sheep", "net.minecraft.world.entity.animal.sheep.Sheep")));
+	/** 騎乗 (#rider: / #passenger:) に使えるMob。ENEMY_IDS のIDもそのまま使える。 */
+	private static final List<String> EXTRA_MOUNT_IDS = List.of(
+			"minecraft:chicken", "minecraft:horse", "minecraft:donkey", "minecraft:mule",
+			"minecraft:wolf", "minecraft:cow", "minecraft:pig", "minecraft:sheep");
 
 	/** ワールド内のプレイヤー一覧を返すメソッド (players / getPlayers の無引数版)。 */
 	private static final Method PLAYERS = findPlayers();
@@ -228,11 +207,6 @@ public final class Compat {
 		}
 		DragonBallMod.LOGGER.warn("位置を設定するメソッドが見つかりませんでした。襲撃の敵を配置できません。");
 		return null;
-	}
-
-	private static String classFor(String id) {
-		String c = ENEMY_CLASSES.get(id);
-		return c != null ? c : EXTRA_MOUNT_CLASSES.get(id);
 	}
 
 	private static String normalizeId(String id) {
@@ -318,33 +292,27 @@ public final class Compat {
 	/** 1体スポーンさせる。flags が null でない場合、baby / charged / effect を適用する。 */
 	private static Entity spawnOne(ServerLevel level, String id, double x, double y, double z, Player target,
 			EnemyEntry flags) {
-		String className = classFor(id);
-		if (className == null) {
+		// クラス名は版でマッピングが変わりうるので使わない。registry の ID から EntityType を引く
+		EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(Identifier.parse(id))
+				.map(Holder::value).orElse(null);
+		if (type == null) {
 			DragonBallMod.LOGGER.warn("未知の敵IDです (スキップします): {}", id);
 			return null;
 		}
 		try {
-			Class<?> clazz = Class.forName(className);
-			Constructor<?> ctor = clazz.getConstructor(ServerLevel.class);
-			Entity entity = (Entity) ctor.newInstance(level);
+			Entity entity = type.create(level, EntitySpawnReason.TRIGGERED);
+			if (entity == null) {
+				DragonBallMod.LOGGER.warn("エンティティを作成できませんでした: {}", id);
+				return null;
+			}
 			if (SET_POS != null) {
 				SET_POS.invoke(entity, x, y, z);
 			}
-			if (entity instanceof LivingEntity living) {
-				// チャンクアンロードで消えないようにする (名前は全版共通の想定。無ければ諦める)
-				try {
-					Method persistent = LivingEntity.class.getMethod("setPersistenceRequired");
-					persistent.invoke(living);
-				} catch (NoSuchMethodException ignored) {
-					// 敵が消えても「全滅」とみなされるだけ
-				}
+			if (entity instanceof Mob mob) {
+				// チャンクアンロードで消えないようにする
+				mob.setPersistenceRequired();
 				if (target != null) {
-					try {
-						Method setTarget = LivingEntity.class.getMethod("setTarget", LivingEntity.class);
-						setTarget.invoke(living, target);
-					} catch (ReflectiveOperationException ignored) {
-						// 追わない敵でも構わない
-					}
+					mob.setTarget(target);
 				}
 			}
 			if (flags != null) {
@@ -490,12 +458,13 @@ public final class Compat {
 		return null;
 	}
 
-	/** a に b を騎乗させる (メソッド名の版差異は検索で吸収)。 */
+	/** a に b を騎乗させる (新版では protected なので setAccessible で呼ぶ)。 */
 	private static void addPassenger(Entity vehicle, Entity rider) {
 		try {
-			Method m = Entity.class.getMethod("addPassenger", Entity.class);
+			Method m = Entity.class.getDeclaredMethod("addPassenger", Entity.class);
+			m.setAccessible(true);
 			m.invoke(vehicle, rider);
-		} catch (ReflectiveOperationException e) {
+		} catch (ReflectiveOperationException | RuntimeException e) {
 			DragonBallMod.LOGGER.warn("騎乗を設定できませんでした: {}", e.toString());
 		}
 	}
@@ -536,13 +505,15 @@ public final class Compat {
 	private static final Field PICKUP_DELAY_FIELD = findPickupDelayField();
 
 	private static Method findPickupDelaySet() {
-		for (String name : new String[]{"setPickupDelay", "setPickupDelayTicks", "setPickupTime"}) {
+		// 26.x では setPickUpDelay (U が大文字)。旧名の候補も一応残す
+		for (String name : new String[]{"setPickUpDelay", "setPickupDelay", "setPickupDelayTicks", "setPickupTime"}) {
 			try {
 				return ItemEntity.class.getMethod(name, int.class);
 			} catch (NoSuchMethodException ignored) {
 				// 次の候補を試す
 			}
 		}
+		DragonBallMod.LOGGER.warn("取得遅延を設定するメソッドが見つかりませんでした。襲撃中の竜玉を触れても取得できてしまうことがあります。");
 		return null;
 	}
 
@@ -582,9 +553,9 @@ public final class Compat {
 	public static List<String> enemyHelpLines() {
 		List<String> out = new ArrayList<>();
 		out.add("【基本の敵ID】");
-		out.add(String.join(", ", ENEMY_CLASSES.keySet()));
+		out.add(String.join(", ", ENEMY_IDS));
 		out.add("【騎乗に追加で使えるID (敵ではないMob)】");
-		out.add(String.join(", ", EXTRA_MOUNT_CLASSES.keySet()));
+		out.add(String.join(", ", EXTRA_MOUNT_IDS));
 		out.add("【修飾子】");
 		out.add("#baby ... 赤ちゃん版 (ゾンビ系・動物系など)");
 		out.add("#charged ... 帯電クリーパー");
