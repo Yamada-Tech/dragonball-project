@@ -59,8 +59,18 @@ public final class DbzConfig {
 	public static double raidMinSpawnDistance = 20.0;
 	/** true にすると、護衛の敵は太陽の光で燃えない (火炎耐性を付与)。 */
 	public static boolean raidPreventBurning = true;
-	/** 出す敵のID (カンマ区切り。この中からランダムに選ばれる) */
-	public static String raidEnemies = "minecraft:pillager,minecraft:vindicator,minecraft:ravager,minecraft:witch,minecraft:evoker";
+	/** 出す敵のID (カンマ区切り。この中からランダムに選ばれる。ラヴェイジャーは ravager_* で個別管理) */
+	public static String raidEnemies = "minecraft:pillager,minecraft:vindicator,minecraft:witch";
+	/** ラヴェイジャーの数: 取得済み1個につきこれだけ増加 (序盤はほぼ出ない) */
+	public static int raidRavagerPerBall = 1;
+	/** ラヴェイジャーの最低数 (0 なら序盤は全く出ない) */
+	public static int raidRavagerMin = 0;
+	/** ラヴェイジャーの最大数 */
+	public static int raidRavagerMax = 6;
+	/** ラヴェイジャーに騎乗手を付ける確率 */
+	public static double raidRavagerMountChance = 0.7;
+	/** ラヴェイジャーに乗る騎乗手 (この中からランダムに1つ) */
+	public static String raidRavagerRiders = "minecraft:pillager,minecraft:evoker";
 	/** true にすると、取得済みの数に応じて「同じ強さの敵の数」が増える (敵自体は強くならない) */
 	public static boolean raidScaling = true;
 	/** 取得済みボール1個ごとに増える護衛の数 (基準値に加算) */
@@ -141,15 +151,21 @@ public final class DbzConfig {
 			raidPreventBurning = getBool(p, "raid.prevent_burning", true);
 			String enemies = p.getProperty("raid.enemies");
 			if (enemies == null || enemies.isBlank()) {
-				enemies = "minecraft:pillager,minecraft:vindicator,minecraft:ravager,minecraft:witch,minecraft:evoker";
+				enemies = "minecraft:pillager,minecraft:vindicator,minecraft:witch";
 			}
 			raidEnemies = enemies.trim();
 			raidScaling = getBool(p, "raid.scaling", true);
 			raidExtraMinionsPerBall = Math.max(0, Math.min(12, getInt(p, "raid.extra_minions_per_ball", 2)));
-			raidRandomMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_mount_chance", 0.2)));
+			raidRandomMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_mount_chance", 0.0)));
 			raidRandomWeaponChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_weapon_chance", 0.3)));
+			raidRavagerPerBall = Math.max(0, Math.min(6, getInt(p, "raid.ravager_per_ball", 1)));
+			raidRavagerMin = Math.max(0, Math.min(6, getInt(p, "raid.ravager_min", 0)));
+			raidRavagerMax = Math.max(0, Math.min(12, getInt(p, "raid.ravager_max", 6)));
+			raidRavagerMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.ravager_mount_chance", 0.7)));
+			String riders = p.getProperty("raid.ravager_riders");
+			raidRavagerRiders = (riders == null || riders.isBlank()) ? "minecraft:pillager,minecraft:evoker" : riders.trim();
 			String mounts = p.getProperty("raid.mounts");
-			raidMounts = (mounts == null) ? "minecraft:ravager,minecraft:horse" : mounts.trim();
+			raidMounts = (mounts == null) ? "" : mounts.trim();
 			String weapons = p.getProperty("raid.weapons");
 			raidWeapons = (weapons == null) ? "minecraft:iron_sword,minecraft:iron_axe,minecraft:diamond_sword"
 					: weapons.trim();
@@ -378,11 +394,25 @@ public final class DbzConfig {
 			#   #passenger:... この敵がそのMobの上に騎乗する
 			#   #effect:   ... モブ効果を掛けて出す (初期値: 60秒・レベル1)
 			# 使えるID・効果ID・書き方の例の完全な一覧は、ゲーム内で /db enemies と入力すると見られます。
-			raid.enemies=minecraft:pillager,minecraft:vindicator,minecraft:ravager,minecraft:witch,minecraft:evoker
+			# ※ ラヴェイジャーは raid.ravager_* で個別管理するので、ここには書かないでください。
+			raid.enemies=minecraft:pillager,minecraft:vindicator,minecraft:witch
 
-			# 護衛にランダムで騎乗を付ける確率と、騎乗に使う Mob (空なら騎乗なし)。
-			raid.random_mount_chance=0.2
-			raid.mounts=minecraft:ravager,minecraft:horse
+			# ----------------------------------------------------------
+			#  ラヴェイジャー (大型の騎乗ボス)
+			# ----------------------------------------------------------
+			#  取得済みの竜玉 1 個につき ravager_per_ball 体ずつ増えます。
+			#  序盤 (0〜1個目) はほぼ出ず、竜玉が集まる終盤に複数現れます。
+			#  騎乗手 (pillager / evoker) が乗った個体 raid.ravager_mount_chance の確率で出てきます。
+			raid.ravager_per_ball=1
+			raid.ravager_min=0
+			raid.ravager_max=6
+			raid.ravager_mount_chance=0.7
+			raid.ravager_riders=minecraft:pillager,minecraft:evoker
+
+			# 雑魚護衛にランダムで騎乗を付ける確率と、騎乗に使う Mob (空なら騎乗なし)。
+			# ラヴェイジャー騎乗は raid.ravager_* で別途管理するため、初期値は無効です。
+			raid.random_mount_chance=0.0
+			raid.mounts=
 
 			# 護衛にランダムで武器 (剣・斧) を持たせる確率と、持たせる武器のID (空なら武器なし)。
 			raid.random_weapon_chance=0.3

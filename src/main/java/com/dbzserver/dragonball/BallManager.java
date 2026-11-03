@@ -782,6 +782,12 @@ public final class BallManager {
 		int minions = DbzConfig.raidMinions
 				+ (DbzConfig.raidScaling ? collected * DbzConfig.raidExtraMinionsPerBall : 0);
 		minions = Math.min(48, Math.max(1, minions));
+		// ラヴェイジャーは「取得済みの数」で増えていく特別枠 (序盤はほぼ出ない)
+		int ravagers = DbzConfig.raidScaling
+				? DbzConfig.raidRavagerMin + collected * DbzConfig.raidRavagerPerBall
+				: DbzConfig.raidRavagerMin;
+		ravagers = Math.min(DbzConfig.raidRavagerMax, ravagers);
+		int total = minions + ravagers;
 
 		// 襲撃の集団はプレイヤーの周囲に現れる (ボールの位置ではない)
 		double px = triggerer.getX();
@@ -794,17 +800,34 @@ public final class BallManager {
 		double minD = DbzConfig.raidMinSpawnDistance;
 		double maxD = Math.max(minD + 1.0, DbzConfig.raidSpawnRadius);
 
+		String[] riderPool = DbzConfig.raidRavagerRiders.isBlank()
+				? new String[0] : DbzConfig.raidRavagerRiders.split(",");
 		List<UUID> guards = new ArrayList<>();
-		for (int i = 0; i < minions; i++) {
-			String spec = pool[random.nextInt(pool.length)].trim();
-			// ランダム騎乗: この敵が mountPool の Mob に騎乗する
-			if (mountPool.length > 0 && random.nextDouble() < DbzConfig.raidRandomMountChance) {
-				String mount = mountPool[random.nextInt(mountPool.length)].trim();
-				spec = spec + "#passenger:" + mount;
+		for (int i = 0; i < total; i++) {
+			String spec;
+			boolean isRavager = i >= minions;
+			if (isRavager) {
+				// ラヴェイジャー: 設定確率でピリジャーやエヴォーカーを騎乗させて出す
+				spec = "minecraft:ravager";
+				if (riderPool.length > 0 && random.nextDouble() < DbzConfig.raidRavagerMountChance) {
+					spec = spec + "#rider:" + riderPool[random.nextInt(riderPool.length)].trim();
+				}
+			} else {
+				spec = pool[random.nextInt(pool.length)].trim();
+				// 雑魚のランダム騎乗 (初期値 0 = 無し)
+				if (mountPool.length > 0 && random.nextDouble() < DbzConfig.raidRandomMountChance) {
+					spec = spec + "#passenger:" + mountPool[random.nextInt(mountPool.length)].trim();
+				}
 			}
 			// 隊列位置: 正面方向から Spread の範囲、minD〜maxD の奥行き
+			// (ラヴェイジャーは集団のやや後ろから登場させる)
 			double angle = facing + (random.nextDouble() - 0.5) * spread;
-			double dist = minD + random.nextDouble() * (maxD - minD);
+			double dist;
+			if (isRavager) {
+				dist = minD + (maxD - minD) * (0.6 + random.nextDouble() * 0.4);
+			} else {
+				dist = minD + random.nextDouble() * (maxD - minD);
+			}
 			double sx = px + Math.cos(angle) * dist;
 			double sz = pz + Math.sin(angle) * dist;
 			// スポーン地点の地面を探す (空中出現・地中出現を防ぐ)
@@ -814,9 +837,12 @@ public final class BallManager {
 			}
 			List<Entity> spawned = new ArrayList<>();
 			Compat.spawnEnemy(lvl, spec, sx, sy, sz, triggerer, spawned);
-			// 武器をランダムで装備
+			// 武器をランダムで装備 (騎乗手を除く近接職のみ。弓持ち・魔法使い・ラヴェイジャーには持たせない)
 			if (weaponPool.length > 0) {
 				for (Entity e : spawned) {
+					if (isRavager || e.isPassenger() || isRangedMob(e)) {
+						continue;
+					}
 					if (random.nextDouble() < DbzConfig.raidRandomWeaponChance) {
 						String weapon = weaponPool[random.nextInt(weaponPool.length)].trim();
 						Compat.equipWeapon(e, weapon);
@@ -1106,6 +1132,16 @@ public final class BallManager {
 		r.holder = player.getUUID().toString();
 		r.holderName = player.getName().getString();
 		save();
+	}
+
+	/** 弓・ポーション・魔法を使う敵 (近接武器を持たせない対象)。 */
+	private static boolean isRangedMob(Entity e) {
+		String key = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
+				.getKey(e.getType()).toString();
+		return switch (key) {
+			case "minecraft:pillager", "minecraft:evoker", "minecraft:witch" -> true;
+			default -> false;
+		};
 	}
 
 	/** スポーン地点の地面の高さ。チャンクが読み込まれていなければ INF 相当 (NaN) を返す。 */
