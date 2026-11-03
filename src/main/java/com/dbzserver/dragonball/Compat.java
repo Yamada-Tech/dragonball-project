@@ -17,6 +17,9 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.equipment.Equippable;
 import net.minecraft.world.phys.Vec3;
 
@@ -367,6 +370,23 @@ public final class Compat {
 				}
 				return;
 			}
+		}
+	}
+
+	/** 敵の利き手に武器 (剣・斧など) を持たせる。ID が分からなければ何もしない。 */
+	public static void equipWeapon(Entity entity, String weaponId) {
+		if (!(entity instanceof LivingEntity living)) {
+			return;
+		}
+		try {
+			Item item = BuiltInRegistries.ITEM.getOptional(Identifier.parse(normalizeId(weaponId))).orElse(null);
+			if (item == null || item == Items.AIR) {
+				DragonBallMod.LOGGER.warn("武器のIDが分かりません (装備しません): {}", weaponId);
+				return;
+			}
+			living.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(item));
+		} catch (LinkageError | RuntimeException e) {
+			DragonBallMod.LOGGER.warn("武器を装備できませんでした ({}): {}", weaponId, e.toString());
 		}
 	}
 

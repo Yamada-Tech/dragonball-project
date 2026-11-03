@@ -28,6 +28,13 @@ public final class BallRecord {
 	/** 護衛の敵を全滅させた (もう触れると取得できる)。 */
 	public boolean cleared;
 
+	/**
+	 * 過去に一度でもプレイヤーが入手したことがあるか。
+	 * true の竜玉は、手放して再びワールドに浮いても襲撃イベントを発動させない
+	 * (触れるだけで取得できる)。消失して再配置されてもこの扱いは続く。
+	 */
+	public boolean everCollected;
+
 	/** 連続して見つからなかった回数 (保存しない)。 */
 	public transient int missing;
 

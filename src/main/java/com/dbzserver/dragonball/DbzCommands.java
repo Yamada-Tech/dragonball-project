@@ -294,8 +294,9 @@ public final class DbzCommands {
 				+ " / 敵: " + DbzConfig.raidEnemies);
 		say(ctx, "襲撃スケーリング: " + (DbzConfig.raidScaling ? "有効" : "無効")
 				+ " / +護衛: " + DbzConfig.raidExtraMinionsPerBall + "体/個"
-				+ " / エリート率: +" + Math.round(DbzConfig.raidEliteChancePerBall * 100) + "%/個"
-				+ " / エリート効果: " + DbzConfig.raidEliteEffects);
+				+ " / 出現距離: " + DbzConfig.raidMinSpawnDistance + "〜" + DbzConfig.raidSpawnRadius + " ブロック"
+				+ " / 騎乗: " + Math.round(DbzConfig.raidRandomMountChance * 100) + "%"
+				+ " / 武器: " + Math.round(DbzConfig.raidRandomWeaponChance * 100) + "%");
 		return 1;
 	}
 }

@@ -28,6 +28,9 @@ public final class DbzConfig {
 	/** ボールがふわふわ浮いている高さ (地面の上からの高さ。ブロック単位)。 */
 	public static double floatHeight = 0.8;
 
+	/** true にすると、マップ上に配置されている竜玉 (未入手のもの) が淡く光って見つけやすくなる。 */
+	public static boolean ballGlow = true;
+
 	// ---- レーダー ----
 	public static int radarUpdateTicks = 20;
 	public static int radarMaxRange = 0;
@@ -48,25 +51,30 @@ public final class DbzConfig {
 	public static double raidTriggerRadius = 1.2;
 	/** 出す敵の数 (基準値。 scaling が有効なときは、取得済みの数に応じて増える) */
 	public static int raidMinions = 6;
-	/** 敵をスポーンさせる範囲の半径 (ブロック。この範囲の「外側の輪」に出現する) */
-	public static double raidSpawnRadius = 14.0;
-	/** 敵をプレイヤーから最低これだけ離して出現させる距離 (ブロック)。至近のクリーパー爆死を防ぐ。 */
-	public static double raidMinSpawnDistance = 8.0;
+	/** 襲撃の敵がプレイヤーに気づくまで見せる距離 (ブロック)。この距離の内外の輪から突撃開始 */
+	public static double raidSpawnRadius = 30.0;
+	/** 襲撃中の敵がこの数以下になったら、残りの数をカウントして全員に知らせる。0 で無効。 */
+	public static int raidCountdownThreshold = 3;
+	/** 敵をプレイヤーから最低これだけ離して出現させる距離 (ブロック)。 */
+	public static double raidMinSpawnDistance = 20.0;
 	/** true にすると、護衛の敵は太陽の光で燃えない (火炎耐性を付与)。 */
 	public static boolean raidPreventBurning = true;
 	/** 出す敵のID (カンマ区切り。この中からランダムに選ばれる) */
-	public static String raidEnemies = "minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch";
-	/** true にすると、残りの未取得ボールの少ない順 (1個目→7個目の取得順) に襲撃が強くになる */
+	public static String raidEnemies = "minecraft:pillager,minecraft:vindicator,minecraft:ravager,minecraft:witch,minecraft:evoker";
+	/** true にすると、取得済みの数に応じて「同じ強さの敵の数」が増える (敵自体は強くならない) */
 	public static boolean raidScaling = true;
 	/** 取得済みボール1個ごとに増える護衛の数 (基準値に加算) */
-	public static int raidExtraMinionsPerBall = 1;
-	/** 取得済みボール1個ごとに、各護衛に掛かる「エリート化」の確率 (0.12 なら12%) */
-	public static double raidEliteChancePerBall = 0.12;
-	/** エリート化した護衛に掛ける効果 (カンマ区切りからランダムに1つ) */
-	public static String raidEliteEffects = "minecraft:strength,minecraft:speed,minecraft:regeneration,minecraft:fire_resistance";
-	/** エリート効果の持続 (秒) とレベル (0 = I, 1 = II) */
-	public static int raidEliteSeconds = 600;
-	public static int raidEliteAmplifier = 0;
+	public static int raidExtraMinionsPerBall = 2;
+	/** 敵に騎乗 (ラヴェイジャーに騎乗するなど) をランダムで付与する確率 */
+	public static double raidRandomMountChance = 0.2;
+	/** 敵に近接武器 (剣・斧) をランダムで持たせる確率 */
+	public static double raidRandomWeaponChance = 0.3;
+	/** 騎乗に使うMob (この中のIDからランダム。空なら騎乗なし) */
+	public static String raidMounts = "minecraft:ravager,minecraft:horse";
+	/** ランダムで持たせる武器 (この中のIDからランダム。空なら武器なし) */
+	public static String raidWeapons = "minecraft:iron_sword,minecraft:iron_axe,minecraft:diamond_sword";
+	/** 襲撃の敵を1方向の集団として出現させる角度の幅 (度。0 なら全周バラバラ) */
+	public static double raidFormationSpreadDegrees = 50.0;
 
 	// ---- ギャルのパンティ (頭に被ったときの能力補正)。0 の項目は付かない。反映にはサーバーの再起動が必要 ----
 	public static double pantiesAttackDamage = 10.0;
@@ -114,6 +122,8 @@ public final class DbzConfig {
 			radarUpdateTicks = Math.max(1, getInt(p, "radar.update_interval_ticks", 20));
 			radarMaxRange = Math.max(0, getInt(p, "radar.max_range_blocks", 0));
 
+			ballGlow = getBool(p, "ball.glow", true);
+
 			auditIntervalTicks = Math.max(20, getInt(p, "audit.interval_ticks", 100));
 			lostGraceAudits = Math.max(1, getInt(p, "audit.lost_grace_audits", 3));
 
@@ -124,25 +134,27 @@ public final class DbzConfig {
 			raidDeathDropRadius = Math.max(0.0, getDouble(p, "raid.death_drop_radius", 32.0));
 			raidTriggerRadius = Math.max(0.5, getDouble(p, "raid.trigger_radius", 1.2));
 			raidMinions = Math.max(1, Math.min(24, getInt(p, "raid.minions", 6)));
-			raidSpawnRadius = Math.max(2.0, Math.min(48.0, getDouble(p, "raid.spawn_radius", 14.0)));
+			raidSpawnRadius = Math.max(4.0, Math.min(64.0, getDouble(p, "raid.spawn_radius", 30.0)));
+			raidCountdownThreshold = Math.max(0, Math.min(12, getInt(p, "raid.countdown_threshold", 3)));
 			raidMinSpawnDistance = Math.max(0.0,
-					Math.min(raidSpawnRadius - 0.5, getDouble(p, "raid.min_spawn_distance", 8.0)));
+					Math.min(raidSpawnRadius - 1.0, getDouble(p, "raid.min_spawn_distance", 20.0)));
 			raidPreventBurning = getBool(p, "raid.prevent_burning", true);
 			String enemies = p.getProperty("raid.enemies");
 			if (enemies == null || enemies.isBlank()) {
-				enemies = "minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch";
+				enemies = "minecraft:pillager,minecraft:vindicator,minecraft:ravager,minecraft:witch,minecraft:evoker";
 			}
 			raidEnemies = enemies.trim();
 			raidScaling = getBool(p, "raid.scaling", true);
-			raidExtraMinionsPerBall = Math.max(0, Math.min(12, getInt(p, "raid.extra_minions_per_ball", 1)));
-			raidEliteChancePerBall = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.elite_chance_per_ball", 0.12)));
-			String elite = p.getProperty("raid.elite_effects");
-			if (elite == null || elite.isBlank()) {
-				elite = "minecraft:strength,minecraft:speed,minecraft:regeneration,minecraft:fire_resistance";
-			}
-			raidEliteEffects = elite.trim();
-			raidEliteSeconds = Math.max(5, getInt(p, "raid.elite_seconds", 600));
-			raidEliteAmplifier = Math.max(0, Math.min(4, getInt(p, "raid.elite_amplifier", 0)));
+			raidExtraMinionsPerBall = Math.max(0, Math.min(12, getInt(p, "raid.extra_minions_per_ball", 2)));
+			raidRandomMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_mount_chance", 0.2)));
+			raidRandomWeaponChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_weapon_chance", 0.3)));
+			String mounts = p.getProperty("raid.mounts");
+			raidMounts = (mounts == null) ? "minecraft:ravager,minecraft:horse" : mounts.trim();
+			String weapons = p.getProperty("raid.weapons");
+			raidWeapons = (weapons == null) ? "minecraft:iron_sword,minecraft:iron_axe,minecraft:diamond_sword"
+					: weapons.trim();
+			raidFormationSpreadDegrees = Math.max(0.0, Math.min(360.0,
+					getDouble(p, "raid.formation_spread_degrees", 50.0)));
 
 			pantiesAttackDamage = getDouble(p, "panties.attack_damage", 10.0);
 			pantiesSpeedMultiplier = getDouble(p, "panties.speed_multiplier", 1.5);
@@ -279,6 +291,15 @@ public final class DbzConfig {
 
 
 			# ----------------------------------------------------------
+			#  配置中の竜玉の光
+			# ----------------------------------------------------------
+
+			# true にすると、マップ上に浮いている (未入手の) 竜玉が淡く光り、
+			# 縁取りとパーティクルで見つけやすくなります。入手済みには効果はありません。
+			ball.glow=true
+
+
+			# ----------------------------------------------------------
 			#  竜玉捜索機 (ドラゴンレーダー)
 			# ----------------------------------------------------------
 
@@ -330,13 +351,17 @@ public final class DbzConfig {
 			# 現れる護衛の数。
 			raid.minions=6
 
-			# 護衛が現れる範囲の半径 (ブロック)。プレイヤーからこの距離以内に収まる輪に出します。
-			raid.spawn_radius=14.0
+			# 護衛の集団が出現する一番遠い距離 (ブロック)。プレイヤーからこの距離以内の隊列に出ます。
+			raid.spawn_radius=30.0
 
 			# 護衛をプレイヤーから最低これだけ離して出現させる距離 (ブロック)。
-			# これより近くには出現しません。至近のクリーパーが即爆発して死ぬ事故を防ぎます。
+			# これより近くには出現しません。気づく前に遠くから突っ込んできます。
 			# spawn_radius より大きくはできません。
-			raid.min_spawn_distance=8.0
+			raid.min_spawn_distance=20.0
+
+			# 護衛がこの数以下になったら、残り数をカウントして全員に知らせる (3 → 2 → 1 …)。
+			# 0 にするとカウントしません。
+			raid.countdown_threshold=3
 
 			# true にすると、護衛の敵は太陽の光で燃えません (ゾンビ・スケルトンが昼間でも死なない)。
 			raid.prevent_burning=true
@@ -350,35 +375,34 @@ public final class DbzConfig {
 			#   #baby      ... 赤ちゃん版
 			#   #charged   ... 帯電クリーパー
 			#   #rider:    ... その敵がこの敵の上に騎乗する (スケルトンホースマンなど)
-			#   #passenger:... この敵がそのMobの上に騎乗する (ニワトリゾンビなど)
+			#   #passenger:... この敵がそのMobの上に騎乗する
 			#   #effect:   ... モブ効果を掛けて出す (初期値: 60秒・レベル1)
 			# 使えるID・効果ID・書き方の例の完全な一覧は、ゲーム内で /db enemies と入力すると見られます。
-			# 例: minecraft:spider#rider:minecraft:skeleton (スパイダージョッキー)
-			#     minecraft:zombie#effect:minecraft:strength:120:1 (力強さIIのゾンビ)
-			raid.enemies=minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch
+			raid.enemies=minecraft:pillager,minecraft:vindicator,minecraft:ravager,minecraft:witch,minecraft:evoker
+
+			# 護衛にランダムで騎乗を付ける確率と、騎乗に使う Mob (空なら騎乗なし)。
+			raid.random_mount_chance=0.2
+			raid.mounts=minecraft:ravager,minecraft:horse
+
+			# 護衛にランダムで武器 (剣・斧) を持たせる確率と、持たせる武器のID (空なら武器なし)。
+			raid.random_weapon_chance=0.3
+			raid.weapons=minecraft:iron_sword,minecraft:iron_axe,minecraft:diamond_sword
+
+			# 護衛はプレイヤーの周りにバラバラと沸くのではなく、
+			# 1方向へ向く幅◯度の扇の隊列で現れて、そのまま集団で突っ込んできます。
+			# 360 にすると全方位にばらけて出現します。0 にするとほぼ1列の密集隊列。
+			raid.formation_spread_degrees=50.0
 
 			# ----------------------------------------------------------
 			#  襲撃の難易度スケーリング
 			# ----------------------------------------------------------
-			#  true にすると、集めた竜玉の数に応じて襲撃が強くなります。
-			#  (1個目を集めたあとの襲撃が最も弱く、7個目が最も強い)
+			#  敵そのものを強くするのではなく、「同じ強さの敵の数」を増やして強くします。
+			#  true にすると、集めた竜玉の数に応じて護衛の数が増えます (1個目が最も弱い)。
 
 			raid.scaling=true
 
 			# 集めた竜玉1個ごとに増える護衛の数。
-			# 例: minions=6, extra=1 なら 1個目=7体, 2個目=8体 ... 6個目=12体。
-			raid.extra_minions_per_ball=1
-
-			# 集めた竜玉1個ごとに、各護衛に掛かる「エリート化」の確率。
-			# 0.12 なら 1個目=12%, 2個目=24% ... 6個目=72%。
-			# エリート化した護衛には elite_effects の効果がランダムに1つ掛かります。
-			raid.elite_chance_per_ball=0.12
-
-			# エリート化で掛かる効果 (カンマ区切りからランダムに1つ)。
-			raid.elite_effects=minecraft:strength,minecraft:speed,minecraft:regeneration,minecraft:fire_resistance
-
-			# エリート効果の持続 (秒) とレベル (0 = I, 1 = II, 2 = III ...)。
-			raid.elite_seconds=600
-			raid.elite_amplifier=0
+			# 例: minions=6, extra=2 なら 1個目=8体, 2個目=10体 ... 6個目=18体。
+			raid.extra_minions_per_ball=2
 			""" + PANTIES_SECTION;
 }

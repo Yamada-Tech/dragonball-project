@@ -70,6 +70,8 @@ public final class BallManager {
 	private final Map<Integer, List<UUID>> raidGuards = new HashMap<>();
 	/** 襲撃を発生させた (護衛に狙われている) プレイヤー。死亡時の扱いに使う。保存しない。 */
 	private final Map<Integer, UUID> raidTriggers = new HashMap<>();
+	/** 襲撃で最後にカウントした護衛の数 (番号 -> 数)。残りカウントの通知を1回ずつにするために使う。保存しない。 */
+	private final Map<Integer, Integer> raidLastCount = new HashMap<>();
 	private final Map<UUID, GlobalPos> lastRadar = new HashMap<>();
 	private final Random random = new Random();
 	private Path stateFile;
@@ -177,6 +179,45 @@ public final class BallManager {
 		}
 		if (tickCounter % 5 == 0) {
 			tickRaids();
+		}
+		if (tickCounter % 10 == 0) {
+			tickBallGlow();
+		}
+	}
+
+	/**
+		* マップ上に浮いている未入手の竜玉を淡く光らせる (エッジのアウトライン + きめ細かい粒子)。
+		* 一度でも入手した竜玉 (everCollected) には効果を付けず、従来どおりにする。
+		*/
+	private void tickBallGlow() {
+		boolean glowOn = DbzConfig.ballGlow;
+		// 粒子は控えめに (20tick ごとに 1 回まばたきさせる)
+		boolean sparkle = glowOn && (tickCounter % 20 == 0);
+		for (int n = 1; n <= 7; n++) {
+			BallRecord r = records[n];
+			if (r == null || r.pending || r.kind != Kind.ITEM) {
+				continue;
+			}
+			UUID id = ballEntityIds.get(n);
+			if (id == null) {
+				continue;
+			}
+			ServerLevel lvl = levelOf(r.dimension);
+			if (lvl == null) {
+				continue;
+			}
+			Entity e = lvl.getEntity(id);
+			if (!(e instanceof ItemEntity ie) || !ie.isAlive()) {
+				continue;
+			}
+			boolean glow = glowOn && !r.everCollected;
+			if (ie.hasGlowingTag() != glow) {
+				ie.setGlowingTag(glow);
+			}
+			if (sparkle) {
+				lvl.sendParticles(net.minecraft.core.particles.ParticleTypes.END_ROD,
+						e.getX(), e.getY(), e.getZ(), 6, 0.25, 0.25, 0.25, 0.015);
+			}
 		}
 	}
 
@@ -390,6 +431,11 @@ public final class BallManager {
 			boolean changedHolder = !s.holder.getUUID().toString().equals(r.holder);
 			r.holder = s.holder.getUUID().toString();
 			r.holderName = s.holder.getName().getString();
+			// 一度でも入手した竜玉は、以後どこに浮いても襲撃を発動させない
+			if (!r.everCollected) {
+				r.everCollected = true;
+				save();
+			}
 			if ((before != Kind.PLAYER || changedHolder)) {
 				logEvent("{}番ボールを {} が入手しました", r.number, r.holderName);
 				if (DbzConfig.broadcastPickup) {
@@ -455,7 +501,8 @@ public final class BallManager {
 		Compat.makeInvulnerable(ballEntity);
 		Compat.makeFloat(ballEntity);
 		Compat.stopMotion(ballEntity);
-		if (DbzConfig.raidEnabled) {
+		// 一度でも入手済みの竜玉は襲撃なしで取得できる (lock しない)
+		if (DbzConfig.raidEnabled && !r.everCollected) {
 			// 襲撃をクリアするまで取得できないようにする (tickRaids で常時管理)
 			Compat.setPickupDelay(ballEntity, 200);
 		} else {
@@ -472,6 +519,7 @@ public final class BallManager {
 		r.raiding = false;
 		r.cleared = false;
 		raidGuards.remove(r.number);
+		raidLastCount.remove(r.number);
 
 		r.kind = Kind.ITEM;
 		r.dimension = level.dimension().identifier().toString();
@@ -645,7 +693,8 @@ public final class BallManager {
 			if (ie == null) {
 				continue;
 			}
-			boolean locked = DbzConfig.raidEnabled && !r.cleared;
+			// 一度でも入手した竜玉は、触れても襲撃を発動させない (そのまま取得できる)
+			boolean locked = DbzConfig.raidEnabled && !r.cleared && !r.everCollected;
 			// 護衛が片付く (または襲撃が起きない) まで、触れても取得できないようにする。
 			// 解除後は取得可能にする。
 			Compat.setPickupDelay(ie, locked ? 100 : 0);
@@ -713,39 +762,61 @@ public final class BallManager {
 	}
 
 	/**
-	 * ボールにプレイヤーが触れた: 護衛をスポーンさせ、襲撃を開始する。
-	 * 取得済みのボールが多いほど (1個目→7個目の順に) 護衛の数とエリート化の確率が上がる。
+	 * ボールにプレイヤーが触れた: 護衛の集団をプレイヤーから離れた場所 (raid.min_spawn_distance 〜
+	 * raid.spawn_radius 先の扇状の隊列) にスポーンさせる。敵はプレイヤーを追って突っ込んでくる。
+	 * 難易度は「同じ強さの敵の数」で上がる (敵自体は強くしない)。
+	 * 騎乗 (敵がランダムで敵に騎乗) と武器 (剣・斧をランダムで装備) は設定の確率で付く。
 	 */
 	private void startRaid(int n, BallRecord r, ServerLevel lvl, ServerPlayer triggerer) {
 		String[] pool = DbzConfig.raidEnemies.split(",");
-		String[] elitePool = DbzConfig.raidEliteEffects.split(",");
+		String[] mountPool = DbzConfig.raidMounts.isBlank() ? new String[0] : DbzConfig.raidMounts.split(",");
+		String[] weaponPool = DbzConfig.raidWeapons.isBlank() ? new String[0] : DbzConfig.raidWeapons.split(",");
 
 		int collected = DbzConfig.raidScaling ? countCollected() : 0;
 		int minions = DbzConfig.raidMinions
 				+ (DbzConfig.raidScaling ? collected * DbzConfig.raidExtraMinionsPerBall : 0);
 		minions = Math.min(48, Math.max(1, minions));
-		double eliteChance = DbzConfig.raidScaling
-				? Math.min(1.0, collected * DbzConfig.raidEliteChancePerBall)
-				: 0.0;
+
+		// 襲撃の集団はプレイヤーの周囲に現れる (ボールの位置ではない)
+		double px = triggerer.getX();
+		double py = triggerer.getY();
+		double pz = triggerer.getZ();
+
+		// 集団の中心方向 (ランダムな1方向) と、その周囲の Spread 度の扇に配置する
+		double facing = random.nextDouble() * Math.PI * 2.0;
+		double spread = Math.toRadians(DbzConfig.raidFormationSpreadDegrees);
+		double minD = DbzConfig.raidMinSpawnDistance;
+		double maxD = Math.max(minD + 1.0, DbzConfig.raidSpawnRadius);
 
 		List<UUID> guards = new ArrayList<>();
 		for (int i = 0; i < minions; i++) {
 			String spec = pool[random.nextInt(pool.length)].trim();
-			// エリート化: 設定確率で、追加の効果 (持続・レベル) を掛ける
-			if (eliteChance > 0 && random.nextDouble() < eliteChance) {
-				String effect = elitePool[random.nextInt(elitePool.length)].trim();
-				spec = spec + "#effect:" + effect + ":" + DbzConfig.raidEliteSeconds
-						+ ":" + DbzConfig.raidEliteAmplifier;
+			// ランダム騎乗: この敵が mountPool の Mob に騎乗する
+			if (mountPool.length > 0 && random.nextDouble() < DbzConfig.raidRandomMountChance) {
+				String mount = mountPool[random.nextInt(mountPool.length)].trim();
+				spec = spec + "#passenger:" + mount;
 			}
-			double angle = random.nextDouble() * Math.PI * 2.0;
-			// プレイヤー (ボール) から最低 minSpawnDistance だけ離し、spawnRadius までの輪に出現させる。
-			// 至近のクリーパーが即爆発してプレイヤーが死ぬのを防ぐ。
-			double minD = DbzConfig.raidMinSpawnDistance;
-			double maxD = Math.max(minD + 1.0, DbzConfig.raidSpawnRadius);
+			// 隊列位置: 正面方向から Spread の範囲、minD〜maxD の奥行き
+			double angle = facing + (random.nextDouble() - 0.5) * spread;
 			double dist = minD + random.nextDouble() * (maxD - minD);
+			double sx = px + Math.cos(angle) * dist;
+			double sz = pz + Math.sin(angle) * dist;
+			// スポーン地点の地面を探す (空中出現・地中出現を防ぐ)
+			double sy = groundY(lvl, sx, sz);
+			if (sy == Double.NEGATIVE_INFINITY) {
+				continue; // 置けない場所 (虚空・未読み込み) はスキップ
+			}
 			List<Entity> spawned = new ArrayList<>();
-			Compat.spawnEnemy(lvl, spec,
-					r.x + Math.cos(angle) * dist, r.y, r.z + Math.sin(angle) * dist, triggerer, spawned);
+			Compat.spawnEnemy(lvl, spec, sx, sy, sz, triggerer, spawned);
+			// 武器をランダムで装備
+			if (weaponPool.length > 0) {
+				for (Entity e : spawned) {
+					if (random.nextDouble() < DbzConfig.raidRandomWeaponChance) {
+						String weapon = weaponPool[random.nextInt(weaponPool.length)].trim();
+						Compat.equipWeapon(e, weapon);
+					}
+				}
+			}
 			// 騎乗している敵・騎乗馬もすべて護衛として数える
 			for (Entity e : spawned) {
 				guards.add(e.getUUID());
@@ -761,8 +832,10 @@ public final class BallManager {
 		r.raiding = true;
 		r.cleared = false;
 		raidGuards.put(n, guards);
+		raidLastCount.put(n, guards.size());
 		save();
-		logEvent("{}番竜玉の襲撃が発生しました (護衛 {} 体 / 取得済み {} 個)", n, guards.size(), collected);
+		logEvent("{}番竜玉の襲撃が発生しました (護衛 {} 体 / 取得済み {} 個 / {}〜{} ブロック先から突撃)",
+				n, guards.size(), collected, (int) minD, (int) maxD);
 		String strengthTag = DbzConfig.raidScaling ? " (取得済み " + collected + " 個)" : "";
 		server.getPlayerList().broadcastSystemMessage(
 				Component.literal("【襲撃】" + ModItems.BALL_NAMES[n - 1] + " を守る護衛が現れた！護衛をせん滅すると、もう一度触れて取得できる。" + strengthTag),
@@ -796,6 +869,18 @@ public final class BallManager {
 		}
 		if (alive == 0) {
 			endRaid(n, r);
+			return;
+		}
+		// 護衛の数が減ったら記録し、カウント中表示 (閾値以下) で数が変わったとき全員に知らせる
+		int last = raidLastCount.getOrDefault(n, alive);
+		if (alive < last) {
+			raidLastCount.put(n, alive);
+			int threshold = DbzConfig.raidCountdownThreshold;
+			if (threshold > 0 && alive <= threshold) {
+				String msg = Component.literal("【襲撃】" + ModItems.BALL_NAMES[n - 1] + " の護衛、残り "
+						+ alive + " 体！").getString();
+				server.getPlayerList().broadcastSystemMessage(Component.literal(msg), false);
+			}
 		}
 	}
 
@@ -804,6 +889,7 @@ public final class BallManager {
 		r.raiding = false;
 		r.cleared = true;
 		raidGuards.remove(n);
+		raidLastCount.remove(n);
 		save();
 		logEvent("{}番竜玉の護衛を全滅。ボールは再触場で取得可能。", n);
 		server.getPlayerList().broadcastSystemMessage(
@@ -847,6 +933,7 @@ public final class BallManager {
 				r.raiding = false;
 				r.cleared = false;
 				raidGuards.remove(n);
+				raidLastCount.remove(n);
 				logEvent("{}番竜玉の所持者が死亡し、周囲に他のプレイヤーがいないため消失とみなしました。新しい場所に再配置します。", n);
 			}
 			save();
@@ -876,7 +963,8 @@ public final class BallManager {
 		Compat.makeFloat(ie);
 		Compat.stopMotion(ie);
 		// 襲撃がまだ終わっていなければ、再び護衛を倒すまで取得できない
-		Compat.setPickupDelay(ie, (DbzConfig.raidEnabled && !r.cleared) ? 100 : 0);
+		// (一度でも入手済みの竜玉は襲撃なしで取得できる)
+		Compat.setPickupDelay(ie, (DbzConfig.raidEnabled && !r.cleared && !r.everCollected) ? 100 : 0);
 		if (!Compat.spawnEntity(lvl, ie)) {
 			// スポーンに失敗したら消失扱いで再配置に回す
 			r.serial = newSerial();
@@ -925,6 +1013,7 @@ public final class BallManager {
 		r.raiding = false;
 		r.cleared = false;
 		raidGuards.remove(n);
+		raidLastCount.remove(n);
 		save();
 		return true;
 	}
@@ -989,6 +1078,7 @@ public final class BallManager {
 		r.missing = 0;
 		r.raiding = false;
 		r.cleared = false;
+		r.everCollected = true;
 		raidGuards.remove(n);
 		ItemStack stack = BallStacks.create(n, r.serial);
 		if (!player.getInventory().add(stack)) {
@@ -1002,6 +1092,17 @@ public final class BallManager {
 		r.holder = player.getUUID().toString();
 		r.holderName = player.getName().getString();
 		save();
+	}
+
+	/** スポーン地点の地面の高さ。チャンクが読み込まれていなければ INF 相当 (NaN) を返す。 */
+	private double groundY(ServerLevel level, double x, double z) {
+		int bx = Mth.floor(x);
+		int bz = Mth.floor(z);
+		if (!level.hasChunk(bx >> 4, bz >> 4)) {
+			return Double.NEGATIVE_INFINITY;
+		}
+		BlockPos top = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, new BlockPos(bx, 0, bz));
+		return top.getY();
 	}
 
 	public ServerLevel levelOf(String dimension) {
