@@ -98,7 +98,7 @@ public final class DbzCommands {
 		say(ctx, "/db locate <1-7>                指定ボールの位置を表示");
 		say(ctx, "/db tp <1-7>                    指定ボールの位置へテレポート");
 		say(ctx, "/db give <プレイヤー> <1-7>     ボールを既存のものごと移して付与 (複製にならない)");
-		say(ctx, "/db radar [プレイヤー]          ドラゴンレーダーを付与");
+		say(ctx, "/db radar [プレイヤー]          竜玉捜索機を付与");
 		say(ctx, "/db respawn <1-7|all>           新しいランダム位置へ再配置 (旧実体は削除)");
 		say(ctx, "/db return <1-7>                最初に置かれた場所へ戻す");
 		say(ctx, "/db sethere <1-7>               今いる場所へボールを移動");
@@ -165,7 +165,7 @@ public final class DbzCommands {
 		if (!target.getInventory().add(stack)) {
 			Block.popResource(target.level(), target.blockPosition(), stack);
 		}
-		say(ctx, "ドラゴンレーダーを " + target.getName().getString() + " に付与しました。");
+		say(ctx, "竜玉捜索機を " + target.getName().getString() + " に付与しました。");
 		return 1;
 	}
 
@@ -286,7 +286,7 @@ public final class DbzCommands {
 		say(ctx, "配置の範囲: " + DbzConfig.minRadius + " 〜 " + DbzConfig.maxRadius + " ブロック");
 		say(ctx, "ボール同士の最低距離: " + DbzConfig.minBallDistance);
 		say(ctx, "海を避ける: " + DbzConfig.avoidOcean + " / 川を避ける: " + DbzConfig.avoidRiver + " / 浮く高さ: " + DbzConfig.floatHeight);
-		say(ctx, "レーダー更新: " + DbzConfig.radarUpdateTicks + " tick / 最大距離: " + (DbzConfig.radarMaxRange == 0 ? "無制限" : DbzConfig.radarMaxRange));
+		say(ctx, "捜索機更新: " + DbzConfig.radarUpdateTicks + " tick / 最大距離: " + (DbzConfig.radarMaxRange == 0 ? "無制限" : DbzConfig.radarMaxRange));
 		say(ctx, "整合性チェック間隔: " + DbzConfig.auditIntervalTicks + " tick / 消失判定の猶予: " + DbzConfig.lostGraceAudits + " 回");
 		say(ctx, "襲撃: " + (DbzConfig.raidEnabled ? "有効" : "無効")
 				+ " / 護衛の数: " + DbzConfig.raidMinions

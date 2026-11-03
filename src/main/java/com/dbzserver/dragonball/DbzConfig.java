@@ -42,12 +42,18 @@ public final class DbzConfig {
 
 	// ---- 竜玉の襲撃イベント (浮遊ボールに触れると護衛が現れ、全滅で再触れて取得) ----
 	public static boolean raidEnabled = true;
+	/** 襲撃中に所持者が死亡した際、「近くに他のプレイヤーがいる」とみなす距離 (ブロック)。 */
+	public static double raidDeathDropRadius = 32.0;
 	/** 触れたと判定される距離 (ブロック) */
 	public static double raidTriggerRadius = 1.2;
 	/** 出す敵の数 (基準値。 scaling が有効なときは、取得済みの数に応じて増える) */
 	public static int raidMinions = 6;
-	/** 敵をスポーンさせる範囲の半径 (ブロック) */
-	public static double raidSpawnRadius = 6.0;
+	/** 敵をスポーンさせる範囲の半径 (ブロック。この範囲の「外側の輪」に出現する) */
+	public static double raidSpawnRadius = 14.0;
+	/** 敵をプレイヤーから最低これだけ離して出現させる距離 (ブロック)。至近のクリーパー爆死を防ぐ。 */
+	public static double raidMinSpawnDistance = 8.0;
+	/** true にすると、護衛の敵は太陽の光で燃えない (火炎耐性を付与)。 */
+	public static boolean raidPreventBurning = true;
 	/** 出す敵のID (カンマ区切り。この中からランダムに選ばれる) */
 	public static String raidEnemies = "minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch";
 	/** true にすると、残りの未取得ボールの少ない順 (1個目→7個目の取得順) に襲撃が強くになる */
@@ -115,9 +121,13 @@ public final class DbzConfig {
 			broadcastPickup = getBool(p, "announce.pickup", false);
 
 			raidEnabled = getBool(p, "raid.enabled", true);
+			raidDeathDropRadius = Math.max(0.0, getDouble(p, "raid.death_drop_radius", 32.0));
 			raidTriggerRadius = Math.max(0.5, getDouble(p, "raid.trigger_radius", 1.2));
 			raidMinions = Math.max(1, Math.min(24, getInt(p, "raid.minions", 6)));
-			raidSpawnRadius = Math.max(1.0, Math.min(32.0, getDouble(p, "raid.spawn_radius", 6.0)));
+			raidSpawnRadius = Math.max(2.0, Math.min(48.0, getDouble(p, "raid.spawn_radius", 14.0)));
+			raidMinSpawnDistance = Math.max(0.0,
+					Math.min(raidSpawnRadius - 0.5, getDouble(p, "raid.min_spawn_distance", 8.0)));
+			raidPreventBurning = getBool(p, "raid.prevent_burning", true);
 			String enemies = p.getProperty("raid.enemies");
 			if (enemies == null || enemies.isBlank()) {
 				enemies = "minecraft:zombie,minecraft:skeleton,minecraft:spider,minecraft:creeper,minecraft:witch";
@@ -269,14 +279,14 @@ public final class DbzConfig {
 
 
 			# ----------------------------------------------------------
-			#  ドラゴンレーダー
+			#  竜玉捜索機 (ドラゴンレーダー)
 			# ----------------------------------------------------------
 
-			# レーダーが「一番近いボール」を再計算する間隔 (tick。20tick = 1秒)。
+			# 捜索機が「一番近いボール」を再計算する間隔 (tick。20tick = 1秒)。
 			# 小さいほど反応が早く、大きいほど軽くなります。
 			radar.update_interval_ticks=20
 
-			# レーダーが反応する最大距離 (ブロック)。0 なら無制限です。
+			# 捜索機が反応する最大距離 (ブロック)。0 なら無制限です。
 			# 例: 3000 にすると、3000ブロック以内にボールがあるときだけ針が反応します。
 			radar.max_range_blocks=0
 
@@ -320,8 +330,20 @@ public final class DbzConfig {
 			# 現れる護衛の数。
 			raid.minions=6
 
-			# 護衛が竜玉のまわりに現れる範囲の半径 (ブロック)。
-			raid.spawn_radius=6.0
+			# 護衛が現れる範囲の半径 (ブロック)。プレイヤーからこの距離以内に収まる輪に出します。
+			raid.spawn_radius=14.0
+
+			# 護衛をプレイヤーから最低これだけ離して出現させる距離 (ブロック)。
+			# これより近くには出現しません。至近のクリーパーが即爆発して死ぬ事故を防ぎます。
+			# spawn_radius より大きくはできません。
+			raid.min_spawn_distance=8.0
+
+			# true にすると、護衛の敵は太陽の光で燃えません (ゾンビ・スケルトンが昼間でも死なない)。
+			raid.prevent_burning=true
+
+			# 襲撃中に竜玉の所持者が死亡したとき、「近くに他のプレイヤーがいる」とみなす距離 (ブロック)。
+			# 近くに誰かがいれば竜玉はその場にドロップ、誰もいなければ消失 (別の場所へ再配置) 扱いになります。
+			raid.death_drop_radius=32.0
 
 			# 護衛として出す敵 (カンマ区切りで、この中からランダムに選ばれます)。
 			# 書式: <敵ID>[#baby][#charged][#rider:<敵ID>][#passenger:<MobID>][#effect:<効果ID>[:秒[:レベル]]]

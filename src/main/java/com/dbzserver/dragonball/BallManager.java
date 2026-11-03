@@ -68,6 +68,8 @@ public final class BallManager {
 	private static final Map<Integer, UUID> ballEntityIds = new HashMap<>();
 	/** 襲撃中の護衛エンティティのUUID (番号 -> 一覧)。保存しない (再起動後は全滅扱い)。 */
 	private final Map<Integer, List<UUID>> raidGuards = new HashMap<>();
+	/** 襲撃を発生させた (護衛に狙われている) プレイヤー。死亡時の扱いに使う。保存しない。 */
+	private final Map<Integer, UUID> raidTriggers = new HashMap<>();
 	private final Map<UUID, GlobalPos> lastRadar = new HashMap<>();
 	private final Random random = new Random();
 	private Path stateFile;
@@ -736,7 +738,11 @@ public final class BallManager {
 						+ ":" + DbzConfig.raidEliteAmplifier;
 			}
 			double angle = random.nextDouble() * Math.PI * 2.0;
-			double dist = 1.5 + random.nextDouble() * Math.max(0.0, DbzConfig.raidSpawnRadius - 1.5);
+			// プレイヤー (ボール) から最低 minSpawnDistance だけ離し、spawnRadius までの輪に出現させる。
+			// 至近のクリーパーが即爆発してプレイヤーが死ぬのを防ぐ。
+			double minD = DbzConfig.raidMinSpawnDistance;
+			double maxD = Math.max(minD + 1.0, DbzConfig.raidSpawnRadius);
+			double dist = minD + random.nextDouble() * (maxD - minD);
 			List<Entity> spawned = new ArrayList<>();
 			Compat.spawnEnemy(lvl, spec,
 					r.x + Math.cos(angle) * dist, r.y, r.z + Math.sin(angle) * dist, triggerer, spawned);
@@ -803,6 +809,98 @@ public final class BallManager {
 		server.getPlayerList().broadcastSystemMessage(
 				Component.literal("【襲撃】" + ModItems.BALL_NAMES[n - 1] + " の護衛をせん滅した！もう一度竜玉に触れて取得しよう。"),
 				false);
+	}
+
+	/**
+	 * プレイヤーが死亡したときの竜玉の扱い。
+	 * 死亡地点の周囲 (raid.death_drop_radius) に他のプレイヤーがいれば、
+	 * 竜玉はその場にドロップ (ふわふわ浮く実体として再出現)。誰もいなければ消失扱い (新しい場所に再配置)。
+	 */
+	public void handleDeath(ServerPlayer dead) {
+		UUID id = dead.getUUID();
+		ServerLevel lvl = (ServerLevel) dead.level();
+		var inv = dead.getInventory();
+		int size = inv.getContainerSize();
+		for (int n = 1; n <= 7; n++) {
+			BallRecord r = records[n];
+			if (r == null || r.pending || r.kind != Kind.PLAYER || !id.equals(parseHolder(r.holder))) {
+				continue;
+			}
+			// 死亡プレイヤーの所持品から該当ボールを抜く (バニラのドロップと重複しないようにする)
+			for (int slot = 0; slot < size; slot++) {
+				ItemStack s = inv.getItem(slot);
+				if (BallStacks.numberOf(s) == n && r.serial.equals(BallStacks.serialOf(s))) {
+					inv.setItem(slot, ItemStack.EMPTY);
+				}
+			}
+			// 同じ次元に他のプレイヤーが近くにいるか
+			boolean otherNearby = hasOtherPlayerNear(lvl, dead, DbzConfig.raidDeathDropRadius);
+			if (otherNearby) {
+				dropBallAt(lvl, dead.getX(), dead.getY(), dead.getZ(), r);
+				logEvent("{}番竜玉の所持者が死亡。近くに他のプレイヤーがいたためその場にドロップしました。", n);
+			} else {
+				// 誰もいない → 消失扱い。新しい場所へ再配置 (serial を変え、古い実体は削除される)
+				r.serial = newSerial();
+				r.pending = true;
+				r.missing = 0;
+				r.kind = Kind.NONE;
+				r.raiding = false;
+				r.cleared = false;
+				raidGuards.remove(n);
+				logEvent("{}番竜玉の所持者が死亡し、周囲に他のプレイヤーがいないため消失とみなしました。新しい場所に再配置します。", n);
+			}
+			save();
+		}
+	}
+
+	/** 死亡者自身を除き、同じ次元の半径内に他のオンラインプレイヤーがいるか。 */
+	private boolean hasOtherPlayerNear(ServerLevel lvl, ServerPlayer dead, double radius) {
+		double r2 = radius * radius;
+		for (ServerPlayer p : Compat.players(lvl)) {
+			if (p == dead || !p.isAlive()) {
+				continue;
+			}
+			if (p.distanceToSqr(dead.getX(), dead.getY(), dead.getZ()) <= r2) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** 指定位置に、ふわふわ浮く無敵の竜玉としてドロップする (serial はそのまま維持)。 */
+	private void dropBallAt(ServerLevel lvl, double x, double y, double z, BallRecord r) {
+		ItemStack ball = BallStacks.create(r.number, r.serial);
+		ItemEntity ie = new ItemEntity(lvl, x, y + DbzConfig.floatHeight, z, ball);
+		ie.setUnlimitedLifetime();
+		Compat.makeInvulnerable(ie);
+		Compat.makeFloat(ie);
+		Compat.stopMotion(ie);
+		// 襲撃がまだ終わっていなければ、再び護衛を倒すまで取得できない
+		Compat.setPickupDelay(ie, (DbzConfig.raidEnabled && !r.cleared) ? 100 : 0);
+		if (!Compat.spawnEntity(lvl, ie)) {
+			// スポーンに失敗したら消失扱いで再配置に回す
+			r.serial = newSerial();
+			r.pending = true;
+			r.kind = Kind.NONE;
+			return;
+		}
+		ballEntityIds.put(r.number, ie.getUUID());
+		r.kind = Kind.ITEM;
+		r.dimension = lvl.dimension().identifier().toString();
+		r.x = x;
+		r.y = y + DbzConfig.floatHeight;
+		r.z = z;
+		r.holder = "";
+		r.holderName = "";
+		r.missing = 0;
+	}
+
+	private static UUID parseHolder(String holder) {
+		try {
+			return UUID.fromString(holder);
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
 	}
 
 	/** 運営用: 襲撃を強制的に終わらせる (敵が行方不明などのとき)。 */

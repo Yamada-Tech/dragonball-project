@@ -2,10 +2,12 @@ package com.dbzserver.dragonball;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerBlockEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.item.ItemEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +55,14 @@ public class DragonBallMod implements ModInitializer {
 		// 起動直後 (マネージャー生成前) に読み込まれるチェストも拾えるよう、常に登録する
 		ServerBlockEntityEvents.BLOCK_ENTITY_LOAD.register((blockEntity, level) -> BallManager.onBlockEntityLoad(blockEntity));
 		ServerBlockEntityEvents.BLOCK_ENTITY_UNLOAD.register((blockEntity, level) -> BallManager.onBlockEntityUnload(blockEntity));
+
+		// プレイヤーが死亡したとき、所持していた竜玉を「近くに他プレイヤーがいればドロップ、
+		// いなければ消失 (再配置)」として扱う
+		ServerLivingEntityEvents.AFTER_DEATH.register((entity, source) -> {
+			if (manager != null && entity instanceof ServerPlayer player) {
+				manager.handleDeath(player);
+			}
+		});
 
 		// ボールがワールドに現れたとき (配置・落下・チャンクの再読み込み)、
 		// 時間経過で消えないようにし、ふわふわ浮いた状態に戻るよう重力を切る

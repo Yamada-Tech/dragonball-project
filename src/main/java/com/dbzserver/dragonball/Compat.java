@@ -315,6 +315,12 @@ public final class Compat {
 					mob.setTarget(target);
 				}
 			}
+			// 日中でも燃えないようにする (ゾンビ・スケルトンなど)。火炎耐性の効果を長時間付与し、
+			// すでに燃えていれば消火する。
+			if (DbzConfig.raidPreventBurning && entity instanceof LivingEntity living) {
+				applyFireResistance(living);
+				clearFire(living);
+			}
 			if (flags != null) {
 				if (flags.baby()) {
 					applyBaby(entity);
@@ -361,6 +367,34 @@ public final class Compat {
 				}
 				return;
 			}
+		}
+	}
+
+	/** 護衛に火炎耐性を付け、太陽で燃えないようにする (ゾンビ・スケルトン対策)。 */
+	private static void applyFireResistance(LivingEntity living) {
+		// 襲撃が長引いても切れないよう、実用上十分な長さ (1時間) を付ける
+		applyEffect(living, new String[]{"minecraft:fire_resistance", "3600", "0"});
+	}
+
+	/** 現在燃えていれば消火する (clearFire の名前は版で変わりうるので探す)。 */
+	private static void clearFire(LivingEntity living) {
+		for (String name : new String[]{"clearFire", "setOnFire", "extinguish"}) {
+			try {
+				Method m = LivingEntity.class.getMethod(name);
+				m.invoke(living);
+				return;
+			} catch (NoSuchMethodException ignored) {
+				// 次の候補
+			} catch (ReflectiveOperationException ignored) {
+				return;
+			}
+		}
+		// setOnFire(false) 版
+		try {
+			Method m = LivingEntity.class.getMethod("setOnFire", boolean.class);
+			m.invoke(living, false);
+		} catch (ReflectiveOperationException ignored) {
+			// 消火できなくても火炎耐性で燃え続けない
 		}
 	}
 

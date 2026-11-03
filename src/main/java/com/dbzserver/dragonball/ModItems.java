@@ -47,7 +47,7 @@ public final class ModItems {
 				.setId(ResourceKey.create(Registries.ITEM, radarId))
 				.stacksTo(1)
 				.rarity(Rarity.RARE)
-				.component(DataComponents.ITEM_NAME, Component.literal("ドラゴンレーダー").withStyle(ChatFormatting.AQUA));
+				.component(DataComponents.ITEM_NAME, Component.literal("竜玉捜索機").withStyle(ChatFormatting.AQUA));
 		RADAR = Registry.register(BuiltInRegistries.ITEM, radarId, new RadarItem(radarProps));
 
 		Identifier pantiesId = Identifier.fromNamespaceAndPath(DragonBallMod.MOD_ID, "gal_panties");
