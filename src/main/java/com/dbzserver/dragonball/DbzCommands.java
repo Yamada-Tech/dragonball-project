@@ -59,6 +59,9 @@ public final class DbzCommands {
 						.then(argument(NUM, IntegerArgumentType.integer(1, 7)).executes(DbzCommands::setHere)))
 				.then(literal("clear")
 						.then(argument(NUM, IntegerArgumentType.integer(1, 7)).executes(DbzCommands::forceClear)))
+				.then(literal("rearm")
+						.then(literal("all").executes(DbzCommands::rearmAll))
+						.then(argument(NUM, IntegerArgumentType.integer(1, 7)).executes(DbzCommands::rearmOne)))
 				.then(literal("enemies").executes(DbzCommands::enemies))
 				.then(literal("audit").executes(DbzCommands::audit))
 				.then(literal("reload").executes(DbzCommands::reload))
@@ -100,6 +103,7 @@ public final class DbzCommands {
 		say(ctx, "/db return <1-7>                最初に置かれた場所へ戻す");
 		say(ctx, "/db sethere <1-7>               今いる場所へボールを移動");
 		say(ctx, "/db clear <1-7>                 襲撃を強制的に終わらせる (護衛が行方不明のときなど)");
+		say(ctx, "/db rearm <1-7|all>             襲撃を再武装する (接近でまた護衛が出る状態に戻す)");
 		say(ctx, "/db enemies                     襲撃で使える敵IDと設定の書き方の一覧を表示");
 		say(ctx, "/db audit                       整合性チェックを今すぐ実行");
 		say(ctx, "/db reload                      設定ファイルを再読み込み");
@@ -227,6 +231,29 @@ public final class DbzCommands {
 		}
 		fail(ctx, label(n) + " は襲撃中ではありません。");
 		return 0;
+	}
+
+	private static int rearmOne(CommandContext<CommandSourceStack> ctx) {
+		BallManager m = manager(ctx);
+		if (m == null) return 0;
+		int n = IntegerArgumentType.getInteger(ctx, NUM);
+		if (m.rearm(n)) {
+			say(ctx, label(n) + " の襲撃を再武装しました。近づくと護衛が現れます。");
+			return 1;
+		}
+		fail(ctx, label(n) + " を再武装できませんでした。");
+		return 0;
+	}
+
+	private static int rearmAll(CommandContext<CommandSourceStack> ctx) {
+		BallManager m = manager(ctx);
+		if (m == null) return 0;
+		int count = 0;
+		for (int n = 1; n <= 7; n++) {
+			if (m.rearm(n)) count++;
+		}
+		say(ctx, "7個中 " + count + " 個の襲撃を再武装しました。近づくと護衛が現れます。");
+		return count;
 	}
 
 	private static int enemies(CommandContext<CommandSourceStack> ctx) {

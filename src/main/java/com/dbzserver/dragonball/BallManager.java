@@ -648,7 +648,10 @@ public final class BallManager {
 			// 解除後は取得可能にする。
 			Compat.setPickupDelay(ie, locked ? 100 : 0);
 			if (locked && !r.raiding) {
-				ServerPlayer p = nearestPlayerWithin(lvl, r.x, r.y, r.z, DbzConfig.raidTriggerRadius);
+				// ボールは floatHeight 分ふわりと浮いているため、記録した地面の座標ではなく
+				// エンティティの実位置で接近を測る ( otherwise 半径に入らない )
+				ServerPlayer p = nearestPlayerWithin(lvl, ie.getX(), ie.getY(), ie.getZ(),
+						DbzConfig.raidTriggerRadius);
 				if (p != null) {
 					startRaid(n, r, lvl, p);
 				}
@@ -677,11 +680,16 @@ public final class BallManager {
 		return null;
 	}
 
+	/** 指定位置の周囲にいる一番近いプレイヤー (半径外なら null)。当たり判定の中心で測る。 */
 	private static ServerPlayer nearestPlayerWithin(ServerLevel lvl, double x, double y, double z, double radius) {
 		ServerPlayer best = null;
 		double bestD = radius * radius;
 		for (ServerPlayer p : Compat.players(lvl)) {
-			double d = p.distanceToSqr(x, y, z);
+			// p.getX/Y/Z は足元なので、胴体中心 (約 +1.0) で測る
+			double dx = p.getX() - x;
+			double dy = (p.getY() + 1.0) - y;
+			double dz = p.getZ() - z;
+			double d = dx * dx + dy * dy + dz * dz;
 			if (d <= bestD) {
 				bestD = d;
 				best = p;
@@ -804,6 +812,22 @@ public final class BallManager {
 			return false;
 		}
 		endRaid(n, r);
+		return true;
+	}
+
+	/**
+	 * 運営用: 襲撃を再武装する (cleared を戻し、接近でまた護衛が出る状態にする)。
+	 * 襲撃が正常に出なかったワールドで、ボールが「取得可能」のまま固定されている場合のリセット用。
+	 */
+	public boolean rearm(int n) {
+		BallRecord r = records[n];
+		if (r == null) {
+			return false;
+		}
+		r.raiding = false;
+		r.cleared = false;
+		raidGuards.remove(n);
+		save();
 		return true;
 	}
 
