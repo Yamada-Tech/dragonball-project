@@ -374,6 +374,12 @@ public final class BallManager {
 					r.serial = newSerial();
 					r.pending = true;
 					r.missing = 0;
+					// 消失して新しい場所に再生成された竜玉は、全新的なものとして襲撃が復活する
+					r.everCollected = false;
+					r.raiding = false;
+					r.cleared = false;
+					raidGuards.remove(n);
+					raidLastCount.remove(n);
 					if (tryPlace(r)) {
 						result.regenerated++;
 					}
@@ -926,12 +932,14 @@ public final class BallManager {
 				logEvent("{}番竜玉の所持者が死亡。近くに他のプレイヤーがいたためその場にドロップしました。", n);
 			} else {
 				// 誰もいない → 消失扱い。新しい場所へ再配置 (serial を変え、古い実体は削除される)
+				// 消失した竜玉は全新的なものとして、襲撃イベントが復活する
 				r.serial = newSerial();
 				r.pending = true;
 				r.missing = 0;
 				r.kind = Kind.NONE;
 				r.raiding = false;
 				r.cleared = false;
+				r.everCollected = false;
 				raidGuards.remove(n);
 				raidLastCount.remove(n);
 				logEvent("{}番竜玉の所持者が死亡し、周囲に他のプレイヤーがいないため消失とみなしました。新しい場所に再配置します。", n);
@@ -1033,6 +1041,12 @@ public final class BallManager {
 		r.serial = newSerial();
 		r.pending = true;
 		r.missing = 0;
+		// 再配置された竜玉は全新的なものとして、襲撃イベントが復活する
+		r.everCollected = false;
+		r.raiding = false;
+		r.cleared = false;
+		raidGuards.remove(n);
+		raidLastCount.remove(n);
 		boolean ok = tryPlace(r);
 		save();
 		return ok;
