@@ -295,6 +295,7 @@ public final class DbzCommands {
 		say(ctx, "襲撃スケーリング: " + (DbzConfig.raidScaling ? "有効" : "無効")
 				+ " / +護衛: " + DbzConfig.raidExtraMinionsPerBall + "体/個"
 				+ " / 出現距離: " + DbzConfig.raidMinSpawnDistance + "〜" + DbzConfig.raidSpawnRadius + " ブロック"
+				+ " / 死亡ドロップ猶予: " + DbzConfig.raidDeathDropGraceSeconds + " 秒"
 				+ " / 騎乗: " + Math.round(DbzConfig.raidRandomMountChance * 100) + "%"
 				+ " / 武器: " + Math.round(DbzConfig.raidRandomWeaponChance * 100) + "%");
 		return 1;

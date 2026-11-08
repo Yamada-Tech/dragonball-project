@@ -183,6 +183,44 @@ public final class BallManager {
 		if (tickCounter % 10 == 0) {
 			tickBallGlow();
 		}
+		if (tickCounter % 20 == 0) {
+			tickLostDeadlines();
+		}
+	}
+
+	/**
+		* 死亡ドロップした竜玉のロスト猶予を判定する。
+		* 猶予 (lostDeadline) を過ぎてもまだワールドに浮いたまま (誰も拾わなかった) なら
+		* 消失扱いにして新しい場所へ再配置する。拾われていれば applySighting で期限が消えている。
+		*/
+	private void tickLostDeadlines() {
+		for (int n = 1; n <= 7; n++) {
+			BallRecord r = records[n];
+			if (r == null || r.pending || r.lostDeadline == 0 || r.kind != Kind.ITEM) {
+				continue;
+			}
+			ServerLevel lvl = levelOf(r.dimension);
+			if (lvl == null) {
+				continue;
+			}
+			if (lvl.getGameTime() >= r.lostDeadline) {
+				// 古い実体があれば削除してから消失扱いにする
+				UUID id = ballEntityIds.get(n);
+				if (id != null) {
+					Entity e = lvl.getEntity(id);
+					if (e != null) {
+						e.discard();
+					}
+					ballEntityIds.remove(n);
+				}
+				server.getPlayerList().broadcastSystemMessage(
+						Component.literal("【ドラゴンボール】 " + ModItems.BALL_NAMES[n - 1]
+								+ " は見る者なく、どこかへ消えてしまった…"),
+						false);
+				markLost(n, r, "死亡ドロップから猶予期間が過ぎ、誰も拾わなかった");
+				save();
+			}
+		}
 	}
 
 	/**
@@ -437,6 +475,11 @@ public final class BallManager {
 			boolean changedHolder = !s.holder.getUUID().toString().equals(r.holder);
 			r.holder = s.holder.getUUID().toString();
 			r.holderName = s.holder.getName().getString();
+			// 誰かが拾ったので、ロスト猶予 (死亡ドロップの期限) を取り消す
+			if (r.lostDeadline != 0) {
+				r.lostDeadline = 0;
+				logEvent("{}番竜玉が猶予期間中に拾われたため、ロストを取り消しました。", r.number);
+			}
 			// 一度でも入手した竜玉は、以後どこに浮いても襲撃を発動させない
 			if (!r.everCollected) {
 				r.everCollected = true;
@@ -931,8 +974,8 @@ public final class BallManager {
 
 	/**
 	 * プレイヤーが死亡したときの竜玉の扱い。
-	 * 死亡地点の周囲 (raid.death_drop_radius) に他のプレイヤーがいれば、
-	 * 竜玉はその場にドロップ (ふわふわ浮く実体として再出現)。誰もいなければ消失扱い (新しい場所に再配置)。
+	 * 常に死亡地点へ竜玉をドロップし、ロスト猶予 (raid.death_drop_grace_seconds) を設定する。
+	 * 猶予の間に誰でも拾えばそのまま残る。誰も拾わずに猶予を過ぎると消失扱い (別の場所へ再配置)。
 	 */
 	public void handleDeath(ServerPlayer dead) {
 		UUID id = dead.getUUID();
@@ -951,41 +994,37 @@ public final class BallManager {
 					inv.setItem(slot, ItemStack.EMPTY);
 				}
 			}
-			// 同じ次元に他のプレイヤーが近くにいるか
-			boolean otherNearby = hasOtherPlayerNear(lvl, dead, DbzConfig.raidDeathDropRadius);
-			if (otherNearby) {
-				dropBallAt(lvl, dead.getX(), dead.getY(), dead.getZ(), r);
-				logEvent("{}番竜玉の所持者が死亡。近くに他のプレイヤーがいたためその場にドロップしました。", n);
+			// その場にドロップし、ロスト猶予の期限を設定する
+			dropBallAt(lvl, dead.getX(), dead.getY(), dead.getZ(), r);
+			int grace = DbzConfig.raidDeathDropGraceSeconds;
+			if (grace > 0) {
+				r.lostDeadline = lvl.getGameTime() + grace * 20L;
+				logEvent("{}番竜玉の所持者が死亡。その場にドロップし、{}秒後に誰も拾わなければ消失します。", n, grace);
+				server.getPlayerList().broadcastSystemMessage(
+						Component.literal("【ドラゴンボール】 " + ModItems.BALL_NAMES[n - 1]
+								+ " が失われた！" + (grace / 60) + "分以内に拾わなければ、どこかへ消えてしまう…"),
+						false);
 			} else {
-				// 誰もいない → 消失扱い。新しい場所へ再配置 (serial を変え、古い実体は削除される)
-				// 消失した竜玉は全新的なものとして、襲撃イベントが復活する
-				r.serial = newSerial();
-				r.pending = true;
-				r.missing = 0;
-				r.kind = Kind.NONE;
-				r.raiding = false;
-				r.cleared = false;
-				r.everCollected = false;
-				raidGuards.remove(n);
-				raidLastCount.remove(n);
-				logEvent("{}番竜玉の所持者が死亡し、周囲に他のプレイヤーがいないため消失とみなしました。新しい場所に再配置します。", n);
+				// 猶予なし → 即消失
+				markLost(n, r, "所持者が死亡し、周囲に見る者もいないため");
 			}
 			save();
 		}
 	}
 
-	/** 死亡者自身を除き、同じ次元の半径内に他のオンラインプレイヤーがいるか。 */
-	private boolean hasOtherPlayerNear(ServerLevel lvl, ServerPlayer dead, double radius) {
-		double r2 = radius * radius;
-		for (ServerPlayer p : Compat.players(lvl)) {
-			if (p == dead || !p.isAlive()) {
-				continue;
-			}
-			if (p.distanceToSqr(dead.getX(), dead.getY(), dead.getZ()) <= r2) {
-				return true;
-			}
-		}
-		return false;
+	/** 消失扱い: 新しい場所へ再配置する (serial を変え、古い実体は次のチェックで削除される)。 */
+	private void markLost(int n, BallRecord r, String reason) {
+		r.lostDeadline = 0;
+		r.serial = newSerial();
+		r.pending = true;
+		r.missing = 0;
+		r.kind = Kind.NONE;
+		r.raiding = false;
+		r.cleared = false;
+		r.everCollected = false;
+		raidGuards.remove(n);
+		raidLastCount.remove(n);
+		logEvent("{}番竜玉が消失したと判断しました ({})。新しい場所に再配置します。", n, reason);
 	}
 
 	/** 指定位置に、ふわふわ浮く無敵の竜玉としてドロップする (serial はそのまま維持)。 */

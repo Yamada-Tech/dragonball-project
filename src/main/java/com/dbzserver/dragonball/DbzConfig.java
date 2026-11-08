@@ -50,7 +50,7 @@ public final class DbzConfig {
 	/** 触れたと判定される距離 (ブロック) */
 	public static double raidTriggerRadius = 1.2;
 	/** 出す敵の数 (基準値。 scaling が有効なときは、取得済みの数に応じて増える) */
-	public static int raidMinions = 6;
+	public static int raidMinions = 4;
 	/** 襲撃の敵がプレイヤーに気づくまで見せる距離 (ブロック)。この距離の内外の輪から突撃開始 */
 	public static double raidSpawnRadius = 30.0;
 	/** 襲撃中の敵がこの数以下になったら、残りの数をカウントして全員に知らせる。0 で無効。 */
@@ -66,15 +66,17 @@ public final class DbzConfig {
 	/** ラヴェイジャーの最低数 (0 なら序盤は全く出ない) */
 	public static int raidRavagerMin = 0;
 	/** ラヴェイジャーの最大数 */
-	public static int raidRavagerMax = 6;
+	public static int raidRavagerMax = 4;
 	/** ラヴェイジャーに騎乗手を付ける確率 */
-	public static double raidRavagerMountChance = 0.7;
+	public static double raidRavagerMountChance = 0.4;
 	/** ラヴェイジャーに乗る騎乗手 (この中からランダムに1つ) */
 	public static String raidRavagerRiders = "minecraft:pillager,minecraft:evoker";
 	/** true にすると、取得済みの数に応じて「同じ強さの敵の数」が増える (敵自体は強くならない) */
 	public static boolean raidScaling = true;
 	/** 取得済みボール1個ごとに増える護衛の数 (基準値に加算) */
-	public static int raidExtraMinionsPerBall = 2;
+	public static int raidExtraMinionsPerBall = 1;
+	/** 死亡ドロップ後のロスト猶予 (秒)。猶予中に誰かが拾えば復活、期限切れなら消失 (再配置)。0 で即時ロスト。 */
+	public static int raidDeathDropGraceSeconds = 300;
 	/** 敵に騎乗 (ラヴェイジャーに騎乗するなど) をランダムで付与する確率 */
 	public static double raidRandomMountChance = 0.2;
 	/** 敵に近接武器 (剣・斧) をランダムで持たせる確率 */
@@ -143,7 +145,7 @@ public final class DbzConfig {
 			raidEnabled = getBool(p, "raid.enabled", true);
 			raidDeathDropRadius = Math.max(0.0, getDouble(p, "raid.death_drop_radius", 32.0));
 			raidTriggerRadius = Math.max(0.5, getDouble(p, "raid.trigger_radius", 1.2));
-			raidMinions = Math.max(1, Math.min(24, getInt(p, "raid.minions", 6)));
+			raidMinions = Math.max(1, Math.min(24, getInt(p, "raid.minions", 4)));
 			raidSpawnRadius = Math.max(4.0, Math.min(64.0, getDouble(p, "raid.spawn_radius", 30.0)));
 			raidCountdownThreshold = Math.max(0, Math.min(12, getInt(p, "raid.countdown_threshold", 3)));
 			raidMinSpawnDistance = Math.max(0.0,
@@ -155,13 +157,14 @@ public final class DbzConfig {
 			}
 			raidEnemies = enemies.trim();
 			raidScaling = getBool(p, "raid.scaling", true);
-			raidExtraMinionsPerBall = Math.max(0, Math.min(12, getInt(p, "raid.extra_minions_per_ball", 2)));
+			raidExtraMinionsPerBall = Math.max(0, Math.min(12, getInt(p, "raid.extra_minions_per_ball", 1)));
+			raidDeathDropGraceSeconds = Math.max(0, getInt(p, "raid.death_drop_grace_seconds", 300));
 			raidRandomMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_mount_chance", 0.0)));
 			raidRandomWeaponChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.random_weapon_chance", 0.3)));
 			raidRavagerPerBall = Math.max(0, Math.min(6, getInt(p, "raid.ravager_per_ball", 1)));
 			raidRavagerMin = Math.max(0, Math.min(6, getInt(p, "raid.ravager_min", 0)));
-			raidRavagerMax = Math.max(0, Math.min(12, getInt(p, "raid.ravager_max", 6)));
-			raidRavagerMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.ravager_mount_chance", 0.7)));
+			raidRavagerMax = Math.max(0, Math.min(12, getInt(p, "raid.ravager_max", 4)));
+			raidRavagerMountChance = Math.max(0.0, Math.min(1.0, getDouble(p, "raid.ravager_mount_chance", 0.4)));
 			String riders = p.getProperty("raid.ravager_riders");
 			raidRavagerRiders = (riders == null || riders.isBlank()) ? "minecraft:pillager,minecraft:evoker" : riders.trim();
 			String mounts = p.getProperty("raid.mounts");
@@ -364,8 +367,8 @@ public final class DbzConfig {
 			# 触れたと判定される距離 (ブロック)。
 			raid.trigger_radius=1.2
 
-			# 現れる護衛の数。
-			raid.minions=6
+			# 現れる護衛の数 (基準値)。
+			raid.minions=4
 
 			# 護衛の集団が出現する一番遠い距離 (ブロック)。プレイヤーからこの距離以内の隊列に出ます。
 			raid.spawn_radius=30.0
@@ -382,9 +385,13 @@ public final class DbzConfig {
 			# true にすると、護衛の敵は太陽の光で燃えません (ゾンビ・スケルトンが昼間でも死なない)。
 			raid.prevent_burning=true
 
-			# 襲撃中に竜玉の所持者が死亡したとき、「近くに他のプレイヤーがいる」とみなす距離 (ブロック)。
-			# 近くに誰かがいれば竜玉はその場にドロップ、誰もいなければ消失 (別の場所へ再配置) 扱いになります。
+			# (使われません。死亡時は常にその場へドロップし、猶予時間を過ぎると消失します)
 			raid.death_drop_radius=32.0
+
+			# 死亡して竜玉がその場にドロップした後、ロスト (消失 → 別の場所へ再配置) までの猶予 (秒)。
+			# 猶予の間に誰でも拾えばそのまま残ります。誰も拾わずに過ぎると消失扱いになります。
+			# 0 にすると即座にロストします。
+			raid.death_drop_grace_seconds=300
 
 			# 護衛として出す敵 (カンマ区切りで、この中からランダムに選ばれます)。
 			# 書式: <敵ID>[#baby][#charged][#rider:<敵ID>][#passenger:<MobID>][#effect:<効果ID>[:秒[:レベル]]]
@@ -405,8 +412,8 @@ public final class DbzConfig {
 			#  騎乗手 (pillager / evoker) が乗った個体 raid.ravager_mount_chance の確率で出てきます。
 			raid.ravager_per_ball=1
 			raid.ravager_min=0
-			raid.ravager_max=6
-			raid.ravager_mount_chance=0.7
+			raid.ravager_max=4
+			raid.ravager_mount_chance=0.4
 			raid.ravager_riders=minecraft:pillager,minecraft:evoker
 
 			# 雑魚護衛にランダムで騎乗を付ける確率と、騎乗に使う Mob (空なら騎乗なし)。
